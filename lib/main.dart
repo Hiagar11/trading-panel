@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 30;
-const String kCurrentVersion = '1.4.7';
+const int kCurrentBuild = 31;
+const String kCurrentVersion = '1.4.8';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -1317,11 +1317,38 @@ class _ChannelsTabState extends State<ChannelsTab> {
   List<dynamic> _channels = [];
   bool _loading = true;
   bool _isOwner = false;
+  String? _lastSignalId;
+  Timer? _signalTimer;
 
   @override
   void initState() {
     super.initState();
     _fetch();
+    _checkNewSignals();
+    _signalTimer =
+        Timer.periodic(const Duration(seconds: 15), (_) => _checkNewSignals());
+  }
+
+  @override
+  void dispose() {
+    _signalTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _checkNewSignals() async {
+    final data = await apiGetList('/signals?limit=1');
+    if (data == null || data.isEmpty) return;
+    final signal = data.first as Map<String, dynamic>;
+    final id =
+        signal['id']?.toString() ?? signal['timestamp']?.toString();
+    if (id == null) return;
+    if (id != _lastSignalId && _lastSignalId != null) {
+      final title = 'Новый сигнал: ${signal['pair'] ?? 'UNKNOWN'}';
+      final body =
+          '${signal['direction'] ?? ''} • ${signal['channel_title'] ?? ''}';
+      showSignalNotification(title, body);
+    }
+    _lastSignalId = id;
   }
 
   Future<void> _fetch() async {
