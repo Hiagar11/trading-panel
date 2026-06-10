@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 28;
-const String kCurrentVersion = '1.4.5';
+const int kCurrentBuild = 29;
+const String kCurrentVersion = '1.4.6';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -264,6 +264,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _openPositions = 0;
   Timer? _statusTimer;
   Timer? _updateTimer;
+  WebSocket? _ws;
+
   @override
   void initState() {
     super.initState();
@@ -274,9 +276,36 @@ class _HomeScreenState extends State<HomeScreen> {
     await SessionManager.load();
     await _requestPermissions();
     _fetchStatus();
-    _statusTimer = Timer.periodic(const Duration(seconds: 10), (_) => _fetchStatus());
+    _connectWs();
+    // Fallback polling every 30s in case WebSocket drops and reconnect is pending
+    _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchStatus());
     _updateTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkUpdate());
     _checkUpdate();
+  }
+
+  void _connectWs() async {
+    try {
+      _ws = await WebSocket.connect('ws://85.192.38.213:8766/ws');
+      _ws!.listen(
+        (data) {
+          final msg = jsonDecode(data as String) as Map<String, dynamic>;
+          if (mounted) {
+            setState(() {
+              _balance = (msg['balance'] as num?)?.toDouble() ?? _balance;
+              _watcherAlive = msg['watcher_alive'] == true;
+              final positions = msg['positions'];
+              if (positions is List) {
+                _openPositions = positions.length;
+              }
+            });
+          }
+        },
+        onDone: () => Future.delayed(const Duration(seconds: 5), _connectWs),
+        onError: (_) => Future.delayed(const Duration(seconds: 5), _connectWs),
+      );
+    } catch (_) {
+      Future.delayed(const Duration(seconds: 5), _connectWs);
+    }
   }
 
   Future<void> _requestPermissions() async {
@@ -430,6 +459,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void dispose() {
     _statusTimer?.cancel();
     _updateTimer?.cancel();
+    _ws?.close();
     super.dispose();
   }
 
