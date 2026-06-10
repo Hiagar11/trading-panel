@@ -13,8 +13,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 23;
-const String kCurrentVersion = '1.4.0';
+const int kCurrentBuild = 24;
+const String kCurrentVersion = '1.4.1';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -389,6 +389,12 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _setWatcher(bool start) async {
+    final action = start ? 'start' : 'stop';
+    await apiPost('/watcher', {'action': action});
+    await _fetchStatus();
+  }
+
   @override
   void dispose() {
     _statusTimer?.cancel();
@@ -402,14 +408,17 @@ class _HomeScreenState extends State<HomeScreen> {
       SignalsTab(onNewSignal: _onNewSignal),
       PositionsTab(),
       ChannelsTab(),
-      const BacktestTab(),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TRADING PANEL'),
+        title: const Text('TRADING PANEL v$kCurrentVersion'),
         actions: [
-          _WatcherStatusWidget(alive: _watcherAlive),
+          _WatcherControlWidget(
+            alive: _watcherAlive,
+            onPlay: () => _setWatcher(true),
+            onPause: () => _setWatcher(false),
+          ),
           IconButton(
             icon: const Icon(Icons.account_circle),
             onPressed: () => _showProfileSheet(),
@@ -427,8 +436,6 @@ class _HomeScreenState extends State<HomeScreen> {
               icon: Icon(Icons.account_balance_wallet), label: 'ПОЗИЦИИ'),
           BottomNavigationBarItem(
               icon: Icon(Icons.list_alt), label: 'КАНАЛЫ'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.bar_chart), label: 'БЭКТЕСТ'),
         ],
       ),
       floatingActionButton: _tabIndex == 0
@@ -519,37 +526,36 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 }
 
-// ─── Watcher status widget ────────────────────────────────────────────────────
-class _WatcherStatusWidget extends StatelessWidget {
+// ─── Watcher control widget ───────────────────────────────────────────────────
+class _WatcherControlWidget extends StatelessWidget {
   final bool alive;
-  const _WatcherStatusWidget({required this.alive});
+  final VoidCallback onPlay;
+  final VoidCallback onPause;
+  const _WatcherControlWidget(
+      {required this.alive, required this.onPlay, required this.onPause});
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            width: 8,
-            height: 8,
-            decoration: BoxDecoration(
-              color: alive ? kGreen : kRed,
-              shape: BoxShape.circle,
-            ),
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          icon: Icon(
+            Icons.play_arrow,
+            color: alive ? kGold : kDim,
           ),
-          const SizedBox(width: 6),
-          Text(
-            alive ? 'Наблюдаю' : 'Не наблюдаю',
-            style: TextStyle(
-              color: alive ? kGreen : kRed,
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
+          onPressed: onPlay,
+          tooltip: 'Запустить наблюдение',
+        ),
+        IconButton(
+          icon: Icon(
+            Icons.pause,
+            color: alive ? kDim : kGold,
           ),
-        ],
-      ),
+          onPressed: onPause,
+          tooltip: 'Остановить наблюдение',
+        ),
+      ],
     );
   }
 }
