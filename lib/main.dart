@@ -11,10 +11,11 @@ import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 25;
-const String kCurrentVersion = '1.4.2';
+const int kCurrentBuild = 26;
+const String kCurrentVersion = '1.4.3';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -348,15 +349,23 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  Future<void> _downloadAndInstall(String url) async {
+  Future<void> _downloadAndInstall(String _ignored) async {
     _showToast('Загрузка обновления...');
     try {
       final dir = await getExternalStorageDirectory() ??
           await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/trading_panel_update.apk');
-      final resp = await http.get(Uri.parse(url))
-          .timeout(const Duration(minutes: 5));
-      await file.writeAsBytes(resp.bodyBytes);
+
+      // Streaming download — не грузим 53MB целиком в RAM
+      final client = http.Client();
+      final request = http.Request('GET', Uri.parse('http://85.192.38.213:8766/download/apk'));
+      final response = await client.send(request);
+
+      final sink = file.openWrite();
+      await response.stream.pipe(sink);
+      await sink.close();
+      client.close();
+
       await OpenFile.open(file.path);
     } catch (e) {
       _showToast('Ошибка загрузки: $e');
