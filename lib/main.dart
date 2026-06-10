@@ -13,8 +13,8 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 24;
-const String kCurrentVersion = '1.4.1';
+const int kCurrentBuild = 25;
+const String kCurrentVersion = '1.4.2';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -258,14 +258,11 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  int _tabIndex = 0;
   bool _watcherAlive = false;
   double _balance = 0;
   int _openPositions = 0;
   Timer? _statusTimer;
   Timer? _updateTimer;
-  String? _lastSignalId;
-
   @override
   void initState() {
     super.initState();
@@ -378,17 +375,6 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  void _onNewSignal(Map<String, dynamic> signal) {
-    final id = signal['id']?.toString() ?? signal['timestamp']?.toString();
-    if (id != null && id != _lastSignalId) {
-      _lastSignalId = id;
-      final pair = signal['pair'] ?? signal['symbol'] ?? 'Сигнал';
-      final direction = signal['direction'] ?? signal['side'] ?? '';
-      showSignalNotification('📊 $pair', direction.toString().toUpperCase());
-      _showToast('Новый сигнал: $pair $direction');
-    }
-  }
-
   Future<void> _setWatcher(bool start) async {
     final action = start ? 'start' : 'stop';
     await apiPost('/watcher', {'action': action});
@@ -404,12 +390,6 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final tabs = [
-      SignalsTab(onNewSignal: _onNewSignal),
-      PositionsTab(),
-      ChannelsTab(),
-    ];
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('TRADING PANEL v$kCurrentVersion'),
@@ -425,87 +405,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: tabs[_tabIndex],
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _tabIndex,
-        onTap: (i) => setState(() => _tabIndex = i),
-        items: const [
-          BottomNavigationBarItem(
-              icon: Icon(Icons.signal_cellular_alt), label: 'СИГНАЛЫ'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet), label: 'ПОЗИЦИИ'),
-          BottomNavigationBarItem(
-              icon: Icon(Icons.list_alt), label: 'КАНАЛЫ'),
-        ],
-      ),
-      floatingActionButton: _tabIndex == 0
-          ? FloatingActionButton(
-              onPressed: _analyzeSignalImage,
-              tooltip: 'Анализ сигнала',
-              child: const Icon(Icons.add_photo_alternate),
-            )
-          : null,
-    );
-  }
-
-  Future<void> _analyzeSignalImage() async {
-    final picker = ImagePicker();
-    final img = await picker.pickImage(source: ImageSource.gallery);
-    if (img == null) return;
-    _showToast('Анализирую сигнал...');
-    try {
-      final request = http.MultipartRequest(
-          'POST', Uri.parse('$kApiBase/signal/analyze'));
-      request.files.add(await http.MultipartFile.fromPath('image', img.path));
-      final resp = await request.send().timeout(const Duration(seconds: 30));
-      final body = await resp.stream.bytesToString();
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(body) as Map<String, dynamic>;
-        _showAnalysisResult(data);
-      } else {
-        _showToast('Ошибка анализа: ${resp.statusCode}');
-      }
-    } catch (e) {
-      _showToast('Ошибка: $e');
-    }
-  }
-
-  void _showAnalysisResult(Map<String, dynamic> data) {
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: kCard,
-        title: const Text('Результат анализа',
-            style: TextStyle(color: kGold)),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: data.entries.map((e) {
-              return Padding(
-                padding: const EdgeInsets.symmetric(vertical: 2),
-                child: RichText(
-                  text: TextSpan(children: [
-                    TextSpan(
-                        text: '${e.key}: ',
-                        style: const TextStyle(color: kDim, fontSize: 13)),
-                    TextSpan(
-                        text: '${e.value}',
-                        style: const TextStyle(
-                            color: Colors.white, fontSize: 13)),
-                  ]),
-                ),
-              );
-            }).toList(),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('OK', style: TextStyle(color: kGold)),
-          ),
-        ],
-      ),
+      body: const ChannelsTab(),
     );
   }
 
