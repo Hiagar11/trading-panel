@@ -13,8 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 35;
-const String kCurrentVersion = '1.5.2';
+const int kCurrentBuild = 36;
+const String kCurrentVersion = '1.5.3';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -79,12 +79,15 @@ Future<void> showSignalNotification(String title, String body) async {
 // ─── Notification tap handler (top-level, used by initNotifications) ─────────
 void _onNotificationTap(NotificationResponse response) async {
   final payload = response.payload;
-  if (payload != null && payload.isNotEmpty) {
-    try {
-      await _installChannel.invokeMethod('installApk', {'path': payload});
-    } catch (e) {
-      debugPrint('Install error: $e');
-    }
+  if (payload == null || payload.isEmpty) return;
+  if (payload == 'do_update') {
+    // Update notification tapped — download is already in progress; nothing to do.
+    return;
+  }
+  try {
+    await _installChannel.invokeMethod('installApk', {'path': payload});
+  } catch (e) {
+    debugPrint('Install error: $e');
   }
 }
 
@@ -328,6 +331,22 @@ class _HomeScreenState extends State<HomeScreen> {
               final serverBuild = msg['build'] as int;
               if (serverBuild > kCurrentBuild && !_updateInProgress) {
                 _updateInProgress = true;
+                _notificationsPlugin.show(
+                  99,
+                  'Доступно обновление',
+                  'Версия $serverBuild готова к установке. Нажми чтобы загрузить.',
+                  const NotificationDetails(
+                    android: AndroidNotificationDetails(
+                      'updates',
+                      'Обновления',
+                      channelDescription: 'Уведомления об обновлениях приложения',
+                      importance: Importance.high,
+                      priority: Priority.high,
+                      icon: '@mipmap/ic_launcher',
+                    ),
+                  ),
+                  payload: 'do_update',
+                );
                 _downloadAndInstall('');
               }
             }
