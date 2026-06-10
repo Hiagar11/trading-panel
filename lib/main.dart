@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 27;
-const String kCurrentVersion = '1.4.4';
+const int kCurrentBuild = 28;
+const String kCurrentVersion = '1.4.5';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -350,25 +350,61 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _downloadAndInstall(String _ignored) async {
-    _showToast('Загрузка обновления...');
+    // Сохранить context до async операций
+    final scaffoldMsg = ScaffoldMessenger.of(context);
+    final nav = Navigator.of(context);
+
+    // Показать диалог прогресса (не snackbar — он исчезает)
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        title: const Text('Загрузка...', style: TextStyle(color: kGold)),
+        content: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CircularProgressIndicator(color: kGold),
+            SizedBox(height: 12),
+            Text('Скачивание обновления', style: TextStyle(color: Colors.white)),
+          ],
+        ),
+      ),
+    );
+
     try {
-      final dir = await getExternalStorageDirectory() ??
-          await getApplicationDocumentsDirectory();
+      // Использовать временную директорию — доступна установщику на всех версиях Android
+      final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/trading_panel_update.apk');
 
-      // Streaming download — не грузим 53MB целиком в RAM
+      // Стриминговый download
       final client = http.Client();
       final request = http.Request('GET', Uri.parse('http://85.192.38.213:8766/download/apk'));
       final response = await client.send(request);
-
       final sink = file.openWrite();
       await response.stream.pipe(sink);
       await sink.close();
       client.close();
 
-      await OpenFile.open(file.path);
+      // Закрыть диалог
+      nav.pop();
+
+      // Открыть установщик
+      final result = await OpenFile.open(file.path);
+      if (result.type != ResultType.done) {
+        scaffoldMsg.showSnackBar(SnackBar(
+          content: Text('Ошибка установки: ${result.message}'),
+          backgroundColor: kCard,
+        ));
+      }
     } catch (e) {
-      _showToast('Ошибка загрузки: $e');
+      // Закрыть диалог если открыт
+      try { nav.pop(); } catch (_) {}
+      scaffoldMsg.showSnackBar(SnackBar(
+        content: Text('Ошибка загрузки: $e'),
+        backgroundColor: kCard,
+        duration: const Duration(seconds: 5),
+      ));
     }
   }
 
