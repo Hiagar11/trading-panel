@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 40;
+const int kCurrentBuild = 41;
 const String kCurrentVersion = '1.5.7';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -1573,12 +1573,15 @@ class _ChannelsTabState extends State<ChannelsTab> {
   Future<void> _checkNewSignals() async {
     final data = await apiGetList('/signals?limit=1');
     if (data == null || data.isEmpty) return;
-    final signal = data.first as Map<String, dynamic>;
+    final raw = data.first;
+    if (raw is! Map) return; // guard: malformed API response
+    final signal = Map<String, dynamic>.from(raw);
     final id =
         signal['id']?.toString() ?? signal['timestamp']?.toString();
-    if (id == null) return;
+    if (id == null || id.isEmpty) return;
     if (id != _lastSignalId && _lastSignalId != null) {
-      final pair = signal['pair'] ?? signal['symbol'] ?? 'UNKNOWN';
+      final pair =
+          (signal['pair'] ?? signal['symbol'] ?? 'UNKNOWN').toString();
       final direction =
           (signal['direction'] ?? signal['side'] ?? '').toString().toUpperCase();
       final entry = signal['price'] ?? signal['entry'] ?? signal['entry_price'];
