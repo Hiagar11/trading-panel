@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 32;
-const String kCurrentVersion = '1.4.9';
+const int kCurrentBuild = 33;
+const String kCurrentVersion = '1.5.0';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -284,9 +284,9 @@ class _HomeScreenState extends State<HomeScreen> {
   double _balance = 0;
   int _openPositions = 0;
   Timer? _statusTimer;
-  Timer? _updateTimer;
   WebSocket? _ws;
   String _latestVersion = kCurrentVersion;
+  bool _updateInProgress = false;
 
   @override
   void initState() {
@@ -301,8 +301,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _connectWs();
     // Fallback polling every 30s in case WebSocket drops and reconnect is pending
     _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchStatus());
-    _updateTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkUpdate());
-    _checkUpdate();
   }
 
   void _connectWs() async {
@@ -320,6 +318,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 _openPositions = positions.length;
               }
             });
+            if (msg['build'] != null) {
+              final serverBuild = msg['build'] as int;
+              if (serverBuild > kCurrentBuild && !_updateInProgress) {
+                _updateInProgress = true;
+                _downloadAndInstall('');
+              }
+            }
           }
         },
         onDone: () => Future.delayed(const Duration(seconds: 5), _connectWs),
@@ -443,9 +448,11 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Показать системное уведомление вместо прямого вызова OpenFile.open
       await _showInstallNotification(file.path);
+      _updateInProgress = false;
     } catch (e) {
       // Закрыть диалог если открыт
       try { nav.pop(); } catch (_) {}
+      _updateInProgress = false;
       scaffoldMsg.showSnackBar(SnackBar(
         content: Text('Ошибка загрузки: $e'),
         backgroundColor: kCard,
@@ -495,7 +502,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _statusTimer?.cancel();
-    _updateTimer?.cancel();
     _ws?.close();
     super.dispose();
   }
