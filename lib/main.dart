@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 26;
-const String kCurrentVersion = '1.4.3';
+const int kCurrentBuild = 27;
+const String kCurrentVersion = '1.4.4';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -414,7 +414,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: const ChannelsTab(),
+      body: ChannelsTab(balance: _balance),
     );
   }
 
@@ -1167,9 +1167,44 @@ class _PositionCard extends StatelessWidget {
   }
 }
 
+// ─── Balance Card ─────────────────────────────────────────────────────────────
+class _BalanceCard extends StatelessWidget {
+  final double balance;
+  const _BalanceCard({required this.balance});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = balance >= 0 ? kGreen : kRed;
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Row(
+        children: [
+          const Text('💰', style: TextStyle(fontSize: 16)),
+          const SizedBox(width: 8),
+          const Text('Баланс:',
+              style: TextStyle(color: kDim, fontSize: 14)),
+          const SizedBox(width: 6),
+          Text(
+            '\$${balance.toStringAsFixed(2)}',
+            style: TextStyle(
+                color: color, fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─── Channels Tab ─────────────────────────────────────────────────────────────
 class ChannelsTab extends StatefulWidget {
-  const ChannelsTab({super.key});
+  final double balance;
+  const ChannelsTab({super.key, required this.balance});
 
   @override
   State<ChannelsTab> createState() => _ChannelsTabState();
@@ -1259,27 +1294,35 @@ class _ChannelsTabState extends State<ChannelsTab> {
     }
     return Scaffold(
       backgroundColor: kBg,
-      body: RefreshIndicator(
-        color: kGold,
-        onRefresh: _fetch,
-        child: _channels.isEmpty
-            ? const Center(
-                child: Text('Нет каналов', style: TextStyle(color: kDim)),
-              )
-            : ListView.builder(
-                padding: const EdgeInsets.all(8),
-                itemCount: _channels.length,
-                itemBuilder: (ctx, i) => _ChannelCard(
-                  channel: _channels[i],
-                  isOwner: _isOwner,
-                  onDelete: () => _deleteChannel(_channels[i]['id'].toString()),
-                  onToggle: () => _toggleChannel(
-                      _channels[i]['id'].toString(),
-                      _channels[i]['active'] == true),
-                  onAnalyze: () =>
-                      _analyzeChannel(_channels[i]['id'].toString()),
-                ),
-              ),
+      body: Column(
+        children: [
+          _BalanceCard(balance: widget.balance),
+          Expanded(
+            child: RefreshIndicator(
+              color: kGold,
+              onRefresh: _fetch,
+              child: _channels.isEmpty
+                  ? const Center(
+                      child: Text('Нет каналов', style: TextStyle(color: kDim)),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.all(8),
+                      itemCount: _channels.length,
+                      itemBuilder: (ctx, i) => _ChannelCard(
+                        channel: _channels[i],
+                        isOwner: _isOwner,
+                        onDelete: () =>
+                            _deleteChannel(_channels[i]['id'].toString()),
+                        onToggle: () => _toggleChannel(
+                            _channels[i]['id'].toString(),
+                            _channels[i]['active'] == true),
+                        onAnalyze: () =>
+                            _analyzeChannel(_channels[i]['id'].toString()),
+                      ),
+                    ),
+            ),
+          ),
+        ],
       ),
       floatingActionButton: _isOwner
           ? FloatingActionButton(
