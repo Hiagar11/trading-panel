@@ -1,0 +1,29 @@
+{
+  "assets": {},
+  "config": {
+    "build_asset_types": [
+      "code_assets/code"
+    ],
+    "extensions": {
+      "code_assets": {
+        "android": {
+          "target_ndk_api": 24
+        },
+        "c_compiler": {
+          "ar": "/home/glados/factories/flutter/android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-ar",
+          "cc": "/home/glados/factories/flutter/android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/clang",
+          "ld": "/home/glados/factories/flutter/android-sdk/ndk/28.2.13676358/toolchains/llvm/prebuilt/linux-x86_64/bin/ld.lld"
+        },
+        "link_mode_preference": "dynamic",
+        "target_architecture": "arm",
+        "target_os": "android"
+      }
+    },
+    "linking_enabled": true
+  },
+  "out_dir_shared": "/home/glados/repos/trading-panel/.dart_tool/hooks_runner/shared/objective_c/build/",
+  "out_file": "/home/glados/repos/trading-panel/.dart_tool/hooks_runner/objective_c/554329da8a/output.json",
+  "package_name": "objective_c",
+  "package_root": "/home/glados/factories/flutter/.pub-cache/hosted/pub.dev/objective_c-9.4.1/",
+  "user_defines": {}
+}

@@ -13,8 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 38;
-const String kCurrentVersion = '1.5.5';
+const int kCurrentBuild = 39;
+const String kCurrentVersion = '1.5.6';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -294,6 +294,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _openPositions = 0;
   Timer? _statusTimer;
   WebSocket? _ws;
+  bool _wsConnected = false;
+  double _downloadProgress = 0.0;
   String _latestVersion = kCurrentVersion;
   bool _updateInProgress = false;
 
@@ -320,6 +322,7 @@ class _HomeScreenState extends State<HomeScreen> {
           final msg = jsonDecode(data as String) as Map<String, dynamic>;
           if (mounted) {
             setState(() {
+              _wsConnected = true;
               _balance = (msg['balance'] as num?)?.toDouble() ?? _balance;
               _watcherAlive = msg['watcher_alive'] == true;
               final positions = msg['positions'];
@@ -352,10 +355,17 @@ class _HomeScreenState extends State<HomeScreen> {
             }
           }
         },
-        onDone: () => Future.delayed(const Duration(seconds: 5), _connectWs),
-        onError: (_) => Future.delayed(const Duration(seconds: 5), _connectWs),
+        onDone: () {
+          if (mounted) setState(() => _wsConnected = false);
+          Future.delayed(const Duration(seconds: 5), _connectWs);
+        },
+        onError: (_) {
+          if (mounted) setState(() => _wsConnected = false);
+          Future.delayed(const Duration(seconds: 5), _connectWs);
+        },
       );
     } catch (_) {
+      if (mounted) setState(() => _wsConnected = false);
       Future.delayed(const Duration(seconds: 5), _connectWs);
     }
   }
@@ -482,13 +492,19 @@ class _HomeScreenState extends State<HomeScreen> {
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/trading_panel_update.apk');
 
-      // Стриминговый download
+      // Стриминговый download с отображением прогресса
       final client = http.Client();
       final request = http.Request('GET', Uri.parse('http://85.192.38.213:8766/download/apk'));
       final response = await client.send(request);
-      final sink = file.openWrite();
-      await response.stream.pipe(sink);
-      await sink.close();
+      final bytes = <int>[];
+      int received = 0;
+      final total = response.contentLength ?? 0;
+      await for (final chunk in response.stream) {
+        bytes.addAll(chunk);
+        received += chunk.length;
+        if (total > 0) setState(() => _downloadProgress = received / total);
+      }
+      await file.writeAsBytes(bytes);
       client.close();
 
       // Закрыть диалог
@@ -501,10 +517,12 @@ class _HomeScreenState extends State<HomeScreen> {
         // Fallback: системное уведомление
         await _showInstallNotification(file.path);
       }
+      setState(() => _downloadProgress = 0.0);
       _updateInProgress = false;
     } catch (e) {
       // Закрыть диалог если открыт
       try { nav.pop(); } catch (_) {}
+      setState(() => _downloadProgress = 0.0);
       _updateInProgress = false;
       scaffoldMsg.showSnackBar(SnackBar(
         content: Text('Ошибка загрузки: $e'),
@@ -565,6 +583,30 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: const Text('TRADING PANEL v$kCurrentVersion'),
         actions: [
+          Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _wsConnected ? Colors.green : Colors.red,
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  _wsConnected ? 'ONLINE' : 'OFFLINE',
+                  style: TextStyle(
+                    color: _wsConnected ? Colors.green : Colors.red,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
           _WatcherControlWidget(
             alive: _watcherAlive,
             onPlay: () => _setWatcher(true),
@@ -576,7 +618,18 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      body: ChannelsTab(balance: _balance),
+      body: Column(
+        children: [
+          if (_downloadProgress > 0 && _downloadProgress < 1.0)
+            LinearProgressIndicator(
+              value: _downloadProgress,
+              minHeight: 3,
+              backgroundColor: Colors.grey[800],
+              valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
+            ),
+          Expanded(child: ChannelsTab(balance: _balance)),
+        ],
+      ),
     );
   }
 
