@@ -14,8 +14,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 29;
-const String kCurrentVersion = '1.4.6';
+const int kCurrentBuild = 30;
+const String kCurrentVersion = '1.4.7';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -30,22 +30,35 @@ const kDim = Color(0xFF6B6B6B);
 final FlutterLocalNotificationsPlugin _notificationsPlugin =
     FlutterLocalNotificationsPlugin();
 
-Future<void> initNotifications() async {
+Future<void> initNotifications({
+  void Function(NotificationResponse)? onTap,
+}) async {
   const AndroidInitializationSettings androidSettings =
       AndroidInitializationSettings('@mipmap/ic_launcher');
-  const InitializationSettings initSettings =
-      InitializationSettings(android: androidSettings);
-  await _notificationsPlugin.initialize(initSettings);
-  const AndroidNotificationChannel channel = AndroidNotificationChannel(
+  final InitializationSettings initSettings = InitializationSettings(
+    android: androidSettings,
+  );
+  await _notificationsPlugin.initialize(
+    initSettings,
+    onDidReceiveNotificationResponse: onTap,
+  );
+  const AndroidNotificationChannel signalsChannel = AndroidNotificationChannel(
     'signals',
     'Сигналы',
     description: 'Уведомления о новых торговых сигналах',
     importance: Importance.high,
   );
-  await _notificationsPlugin
+  const AndroidNotificationChannel updateChannel = AndroidNotificationChannel(
+    'update_channel',
+    'Обновления',
+    description: 'Уведомления об обновлениях приложения',
+    importance: Importance.max,
+  );
+  final androidImpl = _notificationsPlugin
       .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin>()
-      ?.createNotificationChannel(channel);
+          AndroidFlutterLocalNotificationsPlugin>();
+  await androidImpl?.createNotificationChannel(signalsChannel);
+  await androidImpl?.createNotificationChannel(updateChannel);
 }
 
 Future<void> showSignalNotification(String title, String body) async {
@@ -61,10 +74,18 @@ Future<void> showSignalNotification(String title, String body) async {
   await _notificationsPlugin.show(0, title, body, details);
 }
 
+// ─── Notification tap handler (top-level, used by initNotifications) ─────────
+void _onNotificationTap(NotificationResponse response) async {
+  final payload = response.payload;
+  if (payload != null && payload.isNotEmpty) {
+    await OpenFile.open(payload);
+  }
+}
+
 // ─── App entry ───────────────────────────────────────────────────────────────
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initNotifications();
+  await initNotifications(onTap: _onNotificationTap);
   runApp(const TradingPanelApp());
 }
 
@@ -265,6 +286,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _statusTimer;
   Timer? _updateTimer;
   WebSocket? _ws;
+  String _latestVersion = kCurrentVersion;
 
   @override
   void initState() {
@@ -338,6 +360,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (parts.length == 2) {
           final remoteBuild = int.tryParse(parts[1]) ?? 0;
           if (remoteBuild > kCurrentBuild && mounted) {
+            _latestVersion = parts[0]; // save version string (e.g. "1.4.7")
             final assets = data['assets'] as List?;
             if (assets != null && assets.isNotEmpty) {
               final url = assets[0]['browser_download_url'] as String?;
@@ -402,7 +425,7 @@ class _HomeScreenState extends State<HomeScreen> {
     );
 
     try {
-      // Использовать временную директорию — доступна установщику на всех версиях Android
+      // Использовать временную директорию — FileProvider поддерживает cache-path
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/trading_panel_update.apk');
 
@@ -418,14 +441,8 @@ class _HomeScreenState extends State<HomeScreen> {
       // Закрыть диалог
       nav.pop();
 
-      // Открыть установщик
-      final result = await OpenFile.open(file.path);
-      if (result.type != ResultType.done) {
-        scaffoldMsg.showSnackBar(SnackBar(
-          content: Text('Ошибка установки: ${result.message}'),
-          backgroundColor: kCard,
-        ));
-      }
+      // Показать системное уведомление вместо прямого вызова OpenFile.open
+      await _showInstallNotification(file.path);
     } catch (e) {
       // Закрыть диалог если открыт
       try { nav.pop(); } catch (_) {}
@@ -435,6 +452,26 @@ class _HomeScreenState extends State<HomeScreen> {
         duration: const Duration(seconds: 5),
       ));
     }
+  }
+
+  Future<void> _showInstallNotification(String apkPath) async {
+    const androidDetails = AndroidNotificationDetails(
+      'update_channel',
+      'Обновления',
+      channelDescription: 'Уведомления об обновлениях приложения',
+      importance: Importance.max,
+      priority: Priority.high,
+      ongoing: false,
+      autoCancel: true,
+    );
+    const details = NotificationDetails(android: androidDetails);
+    await _notificationsPlugin.show(
+      999,
+      'Обновление готово',
+      'Нажмите для установки Trading Panel v$_latestVersion',
+      details,
+      payload: apkPath,
+    );
   }
 
   void _showToast(String msg) {
