@@ -13,8 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 36;
-const String kCurrentVersion = '1.5.3';
+const int kCurrentBuild = 37;
+const String kCurrentVersion = '1.5.4';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -337,10 +337,10 @@ class _HomeScreenState extends State<HomeScreen> {
                   'Версия $serverBuild готова к установке. Нажми чтобы загрузить.',
                   const NotificationDetails(
                     android: AndroidNotificationDetails(
-                      'updates',
+                      'update_channel',
                       'Обновления',
                       channelDescription: 'Уведомления об обновлениях приложения',
-                      importance: Importance.high,
+                      importance: Importance.max,
                       priority: Priority.high,
                       icon: '@mipmap/ic_launcher',
                     ),
