@@ -293,6 +293,7 @@ class _HomeScreenState extends State<HomeScreen> {
   double _balance = 0;
   int _openPositions = 0;
   Timer? _statusTimer;
+  Timer? _checkUpdateTimer;
   WebSocket? _ws;
   bool _wsConnected = false;
   double _downloadProgress = 0.0;
@@ -312,6 +313,9 @@ class _HomeScreenState extends State<HomeScreen> {
     _connectWs();
     // Fallback polling every 30s in case WebSocket drops and reconnect is pending
     _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchStatus());
+    // GitHub fallback update check (runs when VPS is unreachable)
+    _checkUpdate();
+    _checkUpdateTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkUpdate());
   }
 
   void _connectWs() async {
@@ -573,6 +577,7 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _statusTimer?.cancel();
+    _checkUpdateTimer?.cancel();
     _ws?.close();
     super.dispose();
   }
