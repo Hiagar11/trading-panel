@@ -7,15 +7,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
-import 'package:open_file/open_file.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 33;
-const String kCurrentVersion = '1.5.0';
+const int kCurrentBuild = 34;
+const String kCurrentVersion = '1.5.1';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -25,6 +24,9 @@ const kGold = Color(0xFFD4A017);
 const kGreen = Color(0xFF22D3A5);
 const kRed = Color(0xFFFF4466);
 const kDim = Color(0xFF6B6B6B);
+
+// ─── Install channel ─────────────────────────────────────────────────────────
+const _installChannel = MethodChannel('com.example.trading_panel/install');
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 final FlutterLocalNotificationsPlugin _notificationsPlugin =
@@ -78,7 +80,11 @@ Future<void> showSignalNotification(String title, String body) async {
 void _onNotificationTap(NotificationResponse response) async {
   final payload = response.payload;
   if (payload != null && payload.isNotEmpty) {
-    await OpenFile.open(payload);
+    try {
+      await _installChannel.invokeMethod('installApk', {'path': payload});
+    } catch (e) {
+      debugPrint('Install error: $e');
+    }
   }
 }
 
@@ -446,8 +452,13 @@ class _HomeScreenState extends State<HomeScreen> {
       // Закрыть диалог
       nav.pop();
 
-      // Показать системное уведомление вместо прямого вызова OpenFile.open
-      await _showInstallNotification(file.path);
+      // Попытаться открыть установщик напрямую через FileProvider
+      try {
+        await _installChannel.invokeMethod('installApk', {'path': file.path});
+      } catch (e) {
+        // Fallback: системное уведомление
+        await _showInstallNotification(file.path);
+      }
       _updateInProgress = false;
     } catch (e) {
       // Закрыть диалог если открыт
