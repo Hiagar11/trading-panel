@@ -1,0 +1,1612 @@
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:http/http.dart' as http;
+import 'package:image_picker/image_picker.dart';
+import 'package:open_file/open_file.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+// ─── Constants ───────────────────────────────────────────────────────────────
+const int kCurrentBuild = 23;
+const String kCurrentVersion = '1.4.0';
+const String kApiBase = 'http://85.192.38.213:8766';
+const String kGitHubRepo = 'Hiagar11/trading-panel';
+
+const kBg = Color(0xFF080808);
+const kCard = Color(0xFF101010);
+const kGold = Color(0xFFD4A017);
+const kGreen = Color(0xFF22D3A5);
+const kRed = Color(0xFFFF4466);
+const kDim = Color(0xFF6B6B6B);
+
+// ─── Notifications ────────────────────────────────────────────────────────────
+final FlutterLocalNotificationsPlugin _notificationsPlugin =
+    FlutterLocalNotificationsPlugin();
+
+Future<void> initNotifications() async {
+  const AndroidInitializationSettings androidSettings =
+      AndroidInitializationSettings('@mipmap/ic_launcher');
+  const InitializationSettings initSettings =
+      InitializationSettings(android: androidSettings);
+  await _notificationsPlugin.initialize(initSettings);
+  const AndroidNotificationChannel channel = AndroidNotificationChannel(
+    'signals',
+    'Сигналы',
+    description: 'Уведомления о новых торговых сигналах',
+    importance: Importance.high,
+  );
+  await _notificationsPlugin
+      .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin>()
+      ?.createNotificationChannel(channel);
+}
+
+Future<void> showSignalNotification(String title, String body) async {
+  const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
+    'signals',
+    'Сигналы',
+    channelDescription: 'Уведомления о новых торговых сигналах',
+    importance: Importance.high,
+    priority: Priority.high,
+  );
+  const NotificationDetails details =
+      NotificationDetails(android: androidDetails);
+  await _notificationsPlugin.show(0, title, body, details);
+}
+
+// ─── App entry ───────────────────────────────────────────────────────────────
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await initNotifications();
+  runApp(const TradingPanelApp());
+}
+
+class TradingPanelApp extends StatelessWidget {
+  const TradingPanelApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: 'Trading Panel',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(
+        brightness: Brightness.dark,
+        scaffoldBackgroundColor: kBg,
+        colorScheme: const ColorScheme.dark(
+          primary: kGold,
+          secondary: kGold,
+          surface: kCard,
+          background: kBg,
+        ),
+        appBarTheme: const AppBarTheme(
+          backgroundColor: kCard,
+          elevation: 0,
+          titleTextStyle: TextStyle(
+            color: kGold,
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            letterSpacing: 1.2,
+          ),
+          iconTheme: IconThemeData(color: kGold),
+        ),
+        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+          backgroundColor: kCard,
+          selectedItemColor: kGold,
+          unselectedItemColor: kDim,
+          type: BottomNavigationBarType.fixed,
+        ),
+        cardTheme: const CardThemeData(
+          color: kCard,
+          elevation: 0,
+        ),
+        textTheme: const TextTheme(
+          bodyMedium: TextStyle(color: Colors.white),
+          bodySmall: TextStyle(color: kDim),
+        ),
+        floatingActionButtonTheme: const FloatingActionButtonThemeData(
+          backgroundColor: kGold,
+          foregroundColor: Colors.black,
+        ),
+      ),
+      home: const HomeScreen(),
+    );
+  }
+}
+
+// ─── Session management ───────────────────────────────────────────────────────
+class SessionManager {
+  static const _keyToken = 'session_token';
+  static const _keyUserId = 'session_user_id';
+  static const _keyUserName = 'session_user_name';
+  static const _keyExpiry = 'session_expiry';
+
+  static String? token;
+  static String? userId;
+  static String? userName;
+
+  static Future<void> load() async {
+    final prefs = await SharedPreferences.getInstance();
+    final expiry = prefs.getInt(_keyExpiry) ?? 0;
+    if (DateTime.now().millisecondsSinceEpoch > expiry) {
+      await clear();
+      return;
+    }
+    token = prefs.getString(_keyToken);
+    userId = prefs.getString(_keyUserId);
+    userName = prefs.getString(_keyUserName);
+  }
+
+  static Future<void> save(
+      String t, String id, String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    token = t;
+    userId = id;
+    userName = name;
+    final expiry =
+        DateTime.now().add(const Duration(hours: 24)).millisecondsSinceEpoch;
+    await prefs.setString(_keyToken, t);
+    await prefs.setString(_keyUserId, id);
+    await prefs.setString(_keyUserName, name);
+    await prefs.setInt(_keyExpiry, expiry);
+  }
+
+  static Future<void> clear() async {
+    final prefs = await SharedPreferences.getInstance();
+    token = null;
+    userId = null;
+    userName = null;
+    await prefs.remove(_keyToken);
+    await prefs.remove(_keyUserId);
+    await prefs.remove(_keyUserName);
+    await prefs.remove(_keyExpiry);
+  }
+
+  static bool get isLoggedIn => token != null;
+}
+
+// ─── API helpers ──────────────────────────────────────────────────────────────
+Map<String, String> _headers({bool auth = false}) {
+  final h = {'Content-Type': 'application/json'};
+  if (auth && SessionManager.token != null) {
+    h['X-User-Token'] = SessionManager.token!;
+  }
+  return h;
+}
+
+Future<Map<String, dynamic>?> apiGet(String path,
+    {bool auth = false}) async {
+  try {
+    final resp = await http
+        .get(Uri.parse('$kApiBase$path'), headers: _headers(auth: auth))
+        .timeout(const Duration(seconds: 10));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(resp.body);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return {'_list': decoded};
+    }
+  } catch (_) {}
+  return null;
+}
+
+Future<List<dynamic>?> apiGetList(String path, {bool auth = false}) async {
+  try {
+    final resp = await http
+        .get(Uri.parse('$kApiBase$path'), headers: _headers(auth: auth))
+        .timeout(const Duration(seconds: 10));
+    if (resp.statusCode == 200) {
+      final decoded = jsonDecode(resp.body);
+      if (decoded is List) return decoded;
+      if (decoded is Map && decoded.containsKey('_list')) {
+        return decoded['_list'] as List;
+      }
+    }
+  } catch (_) {}
+  return null;
+}
+
+Future<Map<String, dynamic>?> apiPost(String path, Map<String, dynamic> body,
+    {bool auth = false}) async {
+  try {
+    final resp = await http
+        .post(Uri.parse('$kApiBase$path'),
+            headers: _headers(auth: auth), body: jsonEncode(body))
+        .timeout(const Duration(seconds: 10));
+    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+      if (resp.body.isEmpty) return {};
+      return jsonDecode(resp.body) as Map<String, dynamic>;
+    }
+  } catch (_) {}
+  return null;
+}
+
+Future<bool> apiDelete(String path, {bool auth = false}) async {
+  try {
+    final resp = await http
+        .delete(Uri.parse('$kApiBase$path'), headers: _headers(auth: auth))
+        .timeout(const Duration(seconds: 10));
+    return resp.statusCode >= 200 && resp.statusCode < 300;
+  } catch (_) {
+    return false;
+  }
+}
+
+Future<bool> apiPatch(String path, Map<String, dynamic> body,
+    {bool auth = false}) async {
+  try {
+    final resp = await http
+        .patch(Uri.parse('$kApiBase$path'),
+            headers: _headers(auth: auth), body: jsonEncode(body))
+        .timeout(const Duration(seconds: 10));
+    return resp.statusCode >= 200 && resp.statusCode < 300;
+  } catch (_) {
+    return false;
+  }
+}
+
+// ─── HomeScreen ───────────────────────────────────────────────────────────────
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  int _tabIndex = 0;
+  bool _watcherAlive = false;
+  double _balance = 0;
+  int _openPositions = 0;
+  Timer? _statusTimer;
+  Timer? _updateTimer;
+  String? _lastSignalId;
+
+  @override
+  void initState() {
+    super.initState();
+    _init();
+  }
+
+  Future<void> _init() async {
+    await SessionManager.load();
+    await _requestPermissions();
+    _fetchStatus();
+    _statusTimer = Timer.periodic(const Duration(seconds: 10), (_) => _fetchStatus());
+    _updateTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkUpdate());
+    _checkUpdate();
+  }
+
+  Future<void> _requestPermissions() async {
+    await [
+      Permission.notification,
+    ].request();
+  }
+
+  Future<void> _fetchStatus() async {
+    final data = await apiGet('/status');
+    if (data != null && mounted) {
+      setState(() {
+        _watcherAlive = data['watcher_alive'] == true;
+        _balance = (data['balance'] as num?)?.toDouble() ?? _balance;
+        _openPositions = (data['open_positions'] as num?)?.toInt() ?? _openPositions;
+      });
+    }
+  }
+
+  Future<void> _checkUpdate() async {
+    try {
+      final resp = await http
+          .get(Uri.parse(
+              'https://api.github.com/repos/$kGitHubRepo/releases/latest'))
+          .timeout(const Duration(seconds: 15));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final tag = (data['tag_name'] as String?)?.replaceFirst('v', '') ?? '';
+        final parts = tag.split('+');
+        if (parts.length == 2) {
+          final remoteBuild = int.tryParse(parts[1]) ?? 0;
+          if (remoteBuild > kCurrentBuild && mounted) {
+            final assets = data['assets'] as List?;
+            if (assets != null && assets.isNotEmpty) {
+              final url = assets[0]['browser_download_url'] as String?;
+              if (url != null) {
+                _showUpdateDialog(tag, url);
+              }
+            }
+          }
+        }
+      }
+    } catch (_) {}
+  }
+
+  void _showUpdateDialog(String version, String url) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        title: Text('Обновление $version',
+            style: const TextStyle(color: kGold)),
+        content: const Text(
+            'Доступна новая версия. Установить?',
+            style: TextStyle(color: Colors.white)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Позже', style: TextStyle(color: kDim)),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              _downloadAndInstall(url);
+            },
+            child: const Text('Установить', style: TextStyle(color: kGold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _downloadAndInstall(String url) async {
+    _showToast('Загрузка обновления...');
+    try {
+      final dir = await getExternalStorageDirectory() ??
+          await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/trading_panel_update.apk');
+      final resp = await http.get(Uri.parse(url))
+          .timeout(const Duration(minutes: 5));
+      await file.writeAsBytes(resp.bodyBytes);
+      await OpenFile.open(file.path);
+    } catch (e) {
+      _showToast('Ошибка загрузки: $e');
+    }
+  }
+
+  void _showToast(String msg) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(msg),
+        backgroundColor: kCard,
+        duration: const Duration(seconds: 3),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  void _onNewSignal(Map<String, dynamic> signal) {
+    final id = signal['id']?.toString() ?? signal['timestamp']?.toString();
+    if (id != null && id != _lastSignalId) {
+      _lastSignalId = id;
+      final pair = signal['pair'] ?? signal['symbol'] ?? 'Сигнал';
+      final direction = signal['direction'] ?? signal['side'] ?? '';
+      showSignalNotification('📊 $pair', direction.toString().toUpperCase());
+      _showToast('Новый сигнал: $pair $direction');
+    }
+  }
+
+  @override
+  void dispose() {
+    _statusTimer?.cancel();
+    _updateTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final tabs = [
+      SignalsTab(onNewSignal: _onNewSignal),
+      PositionsTab(),
+      ChannelsTab(),
+      const BacktestTab(),
+    ];
+
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('TRADING PANEL'),
+        actions: [
+          _WatcherStatusWidget(alive: _watcherAlive),
+          IconButton(
+            icon: const Icon(Icons.account_circle),
+            onPressed: () => _showProfileSheet(),
+          ),
+        ],
+      ),
+      body: tabs[_tabIndex],
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _tabIndex,
+        onTap: (i) => setState(() => _tabIndex = i),
+        items: const [
+          BottomNavigationBarItem(
+              icon: Icon(Icons.signal_cellular_alt), label: 'СИГНАЛЫ'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.account_balance_wallet), label: 'ПОЗИЦИИ'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.list_alt), label: 'КАНАЛЫ'),
+          BottomNavigationBarItem(
+              icon: Icon(Icons.bar_chart), label: 'БЭКТЕСТ'),
+        ],
+      ),
+      floatingActionButton: _tabIndex == 0
+          ? FloatingActionButton(
+              onPressed: _analyzeSignalImage,
+              tooltip: 'Анализ сигнала',
+              child: const Icon(Icons.add_photo_alternate),
+            )
+          : null,
+    );
+  }
+
+  Future<void> _analyzeSignalImage() async {
+    final picker = ImagePicker();
+    final img = await picker.pickImage(source: ImageSource.gallery);
+    if (img == null) return;
+    _showToast('Анализирую сигнал...');
+    try {
+      final request = http.MultipartRequest(
+          'POST', Uri.parse('$kApiBase/signal/analyze'));
+      request.files.add(await http.MultipartFile.fromPath('image', img.path));
+      final resp = await request.send().timeout(const Duration(seconds: 30));
+      final body = await resp.stream.bytesToString();
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(body) as Map<String, dynamic>;
+        _showAnalysisResult(data);
+      } else {
+        _showToast('Ошибка анализа: ${resp.statusCode}');
+      }
+    } catch (e) {
+      _showToast('Ошибка: $e');
+    }
+  }
+
+  void _showAnalysisResult(Map<String, dynamic> data) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        title: const Text('Результат анализа',
+            style: TextStyle(color: kGold)),
+        content: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: data.entries.map((e) {
+              return Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: RichText(
+                  text: TextSpan(children: [
+                    TextSpan(
+                        text: '${e.key}: ',
+                        style: const TextStyle(color: kDim, fontSize: 13)),
+                    TextSpan(
+                        text: '${e.value}',
+                        style: const TextStyle(
+                            color: Colors.white, fontSize: 13)),
+                  ]),
+                ),
+              );
+            }).toList(),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('OK', style: TextStyle(color: kGold)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showProfileSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: kCard,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (ctx) => ProfileSheet(
+        onChanged: () {
+          setState(() {});
+          Navigator.pop(ctx);
+        },
+      ),
+    );
+  }
+}
+
+// ─── Watcher status widget ────────────────────────────────────────────────────
+class _WatcherStatusWidget extends StatelessWidget {
+  final bool alive;
+  const _WatcherStatusWidget({required this.alive});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 12),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 8,
+            height: 8,
+            decoration: BoxDecoration(
+              color: alive ? kGreen : kRed,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            alive ? 'Наблюдаю' : 'Не наблюдаю',
+            style: TextStyle(
+              color: alive ? kGreen : kRed,
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Profile Sheet ────────────────────────────────────────────────────────────
+class ProfileSheet extends StatefulWidget {
+  final VoidCallback onChanged;
+  const ProfileSheet({super.key, required this.onChanged});
+
+  @override
+  State<ProfileSheet> createState() => _ProfileSheetState();
+}
+
+class _ProfileSheetState extends State<ProfileSheet> {
+  List<dynamic> _users = [];
+  bool _loading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadUsers();
+  }
+
+  Future<void> _loadUsers() async {
+    final data = await apiGetList('/users');
+    if (mounted) setState(() => _users = data ?? []);
+  }
+
+  Future<void> _login(String userId) async {
+    final pin = await _askPin(context);
+    if (pin == null) return;
+    setState(() => _loading = true);
+    final resp = await apiPost('/users/$userId/login', {'pin': pin});
+    setState(() => _loading = false);
+    if (resp != null && resp['token'] != null) {
+      final name = _users
+          .firstWhere((u) => u['id'].toString() == userId,
+              orElse: () => {'name': 'User'})['name']
+          .toString();
+      await SessionManager.save(resp['token'], userId, name);
+      widget.onChanged();
+    } else {
+      _showToast('Неверный PIN');
+    }
+  }
+
+  Future<void> _createUser() async {
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => const _CreateUserDialog(),
+    );
+    if (result == null) return;
+    setState(() => _loading = true);
+    final resp = await apiPost('/users', result);
+    setState(() => _loading = false);
+    if (resp != null) {
+      _showToast('Профиль создан');
+      _loadUsers();
+    } else {
+      _showToast('Ошибка создания');
+    }
+  }
+
+  Future<void> _logout() async {
+    if (SessionManager.userId != null) {
+      await apiPost('/users/${SessionManager.userId}/logout', {},
+          auth: true);
+    }
+    await SessionManager.clear();
+    widget.onChanged();
+  }
+
+  void _showToast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: kCard),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(20),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Профиль',
+              style: TextStyle(
+                  color: kGold, fontSize: 18, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 16),
+          if (SessionManager.isLoggedIn) ...[
+            Row(
+              children: [
+                const Icon(Icons.account_circle, color: kGold, size: 32),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(SessionManager.userName ?? 'Пользователь',
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                      Text('ID: ${SessionManager.userId}',
+                          style: const TextStyle(color: kDim, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton(
+                onPressed: _logout,
+                style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: kRed)),
+                child: const Text('Выйти',
+                    style: TextStyle(color: kRed)),
+              ),
+            ),
+          ] else ...[
+            const Text('Выберите профиль для входа:',
+                style: TextStyle(color: kDim)),
+            const SizedBox(height: 8),
+            if (_loading)
+              const CircularProgressIndicator(color: kGold)
+            else ...[
+              ..._users.map((u) => ListTile(
+                    leading: const Icon(Icons.person, color: kDim),
+                    title: Text(u['name']?.toString() ?? 'User',
+                        style: const TextStyle(color: Colors.white)),
+                    subtitle: Text('ID: ${u['id']}',
+                        style: const TextStyle(color: kDim, fontSize: 11)),
+                    onTap: () => _login(u['id'].toString()),
+                  )),
+              const Divider(color: kDim),
+              TextButton.icon(
+                onPressed: _createUser,
+                icon: const Icon(Icons.add, color: kGold),
+                label: const Text('Создать профиль',
+                    style: TextStyle(color: kGold)),
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+Future<String?> _askPin(BuildContext context) async {
+  final ctrl = TextEditingController();
+  return showDialog<String>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: kCard,
+      title: const Text('Введите PIN',
+          style: TextStyle(color: kGold)),
+      content: TextField(
+        controller: ctrl,
+        obscureText: true,
+        keyboardType: TextInputType.number,
+        maxLength: 6,
+        decoration: const InputDecoration(
+          hintText: 'PIN',
+          hintStyle: TextStyle(color: kDim),
+          counterStyle: TextStyle(color: kDim),
+        ),
+        style: const TextStyle(color: Colors.white),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(ctx),
+          child: const Text('Отмена', style: TextStyle(color: kDim)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(ctx, ctrl.text),
+          child: const Text('Войти', style: TextStyle(color: kGold)),
+        ),
+      ],
+    ),
+  );
+}
+
+class _CreateUserDialog extends StatefulWidget {
+  const _CreateUserDialog();
+
+  @override
+  State<_CreateUserDialog> createState() => _CreateUserDialogState();
+}
+
+class _CreateUserDialogState extends State<_CreateUserDialog> {
+  final _nameCtrl = TextEditingController();
+  final _pinCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: kCard,
+      title: const Text('Новый профиль',
+          style: TextStyle(color: kGold)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Имя',
+              labelStyle: TextStyle(color: kDim),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _pinCtrl,
+            obscureText: true,
+            keyboardType: TextInputType.number,
+            maxLength: 6,
+            decoration: const InputDecoration(
+              labelText: 'PIN (4-6 цифр)',
+              labelStyle: TextStyle(color: kDim),
+              counterStyle: TextStyle(color: kDim),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена', style: TextStyle(color: kDim)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, {
+            'name': _nameCtrl.text,
+            'pin': _pinCtrl.text,
+          }),
+          child: const Text('Создать', style: TextStyle(color: kGold)),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Signals Tab ──────────────────────────────────────────────────────────────
+class SignalsTab extends StatefulWidget {
+  final void Function(Map<String, dynamic>) onNewSignal;
+  const SignalsTab({super.key, required this.onNewSignal});
+
+  @override
+  State<SignalsTab> createState() => _SignalsTabState();
+}
+
+class _SignalsTabState extends State<SignalsTab> {
+  List<dynamic> _signals = [];
+  bool _loading = true;
+  String? _error;
+  Timer? _timer;
+  String? _lastId;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _fetch());
+  }
+
+  Future<void> _fetch() async {
+    final data = await apiGetList('/signals?limit=30');
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        if (data != null) {
+          _error = null;
+          // Check for new signal
+          if (data.isNotEmpty) {
+            final newest = data.first as Map<String, dynamic>;
+            final id = newest['id']?.toString() ??
+                newest['timestamp']?.toString();
+            if (id != null && id != _lastId && _lastId != null) {
+              widget.onNewSignal(newest);
+            }
+            _lastId = id;
+          }
+          _signals = data;
+        } else {
+          _error = 'Ошибка загрузки сигналов';
+        }
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: kGold));
+    }
+    if (_error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline, color: kRed, size: 48),
+            const SizedBox(height: 8),
+            Text(_error!, style: const TextStyle(color: kDim)),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: () {
+                setState(() => _loading = true);
+                _fetch();
+              },
+              style: ElevatedButton.styleFrom(backgroundColor: kGold),
+              child: const Text('Повторить',
+                  style: TextStyle(color: Colors.black)),
+            ),
+          ],
+        ),
+      );
+    }
+    if (_signals.isEmpty) {
+      return const Center(
+        child: Text('Нет сигналов', style: TextStyle(color: kDim)),
+      );
+    }
+    return RefreshIndicator(
+      color: kGold,
+      onRefresh: _fetch,
+      child: ListView.builder(
+        padding: const EdgeInsets.all(8),
+        itemCount: _signals.length,
+        itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i]),
+      ),
+    );
+  }
+}
+
+class _SignalCard extends StatelessWidget {
+  final dynamic signal;
+  const _SignalCard({required this.signal});
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, dynamic> s =
+        signal is Map<String, dynamic> ? signal : {};
+    final pair = s['pair'] ?? s['symbol'] ?? s['channel'] ?? '—';
+    final direction = (s['direction'] ?? s['side'] ?? s['type'] ?? '')
+        .toString()
+        .toUpperCase();
+    final price = s['price'] ?? s['entry'] ?? s['entry_price'];
+    final sl = s['sl'] ?? s['stop_loss'];
+    final tp = s['tp'] ?? s['take_profit'];
+    final ts = s['timestamp'] ?? s['created_at'] ?? s['time'];
+    final isLong = direction.contains('LONG') || direction.contains('BUY');
+    final isShort = direction.contains('SHORT') || direction.contains('SELL');
+    final dirColor = isLong
+        ? kGreen
+        : isShort
+            ? kRed
+            : kDim;
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text(pair.toString(),
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15)),
+                const Spacer(),
+                if (direction.isNotEmpty)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: dirColor.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: dirColor, width: 0.5),
+                    ),
+                    child: Text(direction,
+                        style: TextStyle(
+                            color: dirColor,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold)),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Row(
+              children: [
+                if (price != null)
+                  _InfoChip('Вход', price.toString(), Colors.white),
+                if (sl != null)
+                  _InfoChip('SL', sl.toString(), kRed),
+                if (tp != null)
+                  _InfoChip('TP', tp.toString(), kGreen),
+              ],
+            ),
+            if (ts != null) ...[
+              const SizedBox(height: 4),
+              Text(ts.toString(),
+                  style: const TextStyle(color: kDim, fontSize: 11)),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _InfoChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _InfoChip(this.label, this.value, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(right: 12),
+      child: RichText(
+        text: TextSpan(children: [
+          TextSpan(
+              text: '$label: ',
+              style: const TextStyle(color: kDim, fontSize: 12)),
+          TextSpan(
+              text: value,
+              style: TextStyle(
+                  color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+        ]),
+      ),
+    );
+  }
+}
+
+// ─── Positions Tab ────────────────────────────────────────────────────────────
+class PositionsTab extends StatefulWidget {
+  const PositionsTab({super.key});
+
+  @override
+  State<PositionsTab> createState() => _PositionsTabState();
+}
+
+class _PositionsTabState extends State<PositionsTab> {
+  List<dynamic> _positions = [];
+  double _balance = 0;
+  double _dailyPnl = 0;
+  int _tradeCount = 0;
+  bool _loading = true;
+  String? _error;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _fetch());
+  }
+
+  Future<void> _fetch() async {
+    if (!SessionManager.isLoggedIn) {
+      if (mounted) setState(() { _loading = false; _error = null; });
+      return;
+    }
+    final posData = await apiGetList('/positions', auth: true);
+    final balData = await apiGet('/balance', auth: true);
+    final statsData = await apiGet('/stats/daily', auth: true);
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        if (posData != null) {
+          _positions = posData;
+          _error = null;
+        } else {
+          _error = 'Ошибка загрузки позиций';
+        }
+        if (balData != null) {
+          _balance = (balData['balance'] as num?)?.toDouble() ?? _balance;
+        }
+        if (statsData != null) {
+          _dailyPnl = (statsData['pnl'] as num?)?.toDouble() ?? _dailyPnl;
+          _tradeCount = (statsData['trade_count'] as num?)?.toInt() ?? _tradeCount;
+        }
+      });
+    }
+  }
+
+  Future<void> _closePosition(String id) async {
+    final ok = await apiDelete('/positions/$id', auth: true);
+    if (ok) {
+      _showToast('Позиция закрыта');
+      _fetch();
+    } else {
+      _showToast('Ошибка закрытия позиции');
+    }
+  }
+
+  void _showToast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: kCard),
+    );
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (!SessionManager.isLoggedIn) {
+      return const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline, color: kDim, size: 48),
+            SizedBox(height: 12),
+            Text('Войдите в профиль', style: TextStyle(color: kDim)),
+            SizedBox(height: 4),
+            Text('Нажмите иконку профиля в шапке',
+                style: TextStyle(color: kDim, fontSize: 12)),
+          ],
+        ),
+      );
+    }
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: kGold));
+    }
+    return RefreshIndicator(
+      color: kGold,
+      onRefresh: _fetch,
+      child: ListView(
+        padding: const EdgeInsets.all(12),
+        children: [
+          // Balance & P&L cards
+          Row(
+            children: [
+              Expanded(
+                child: _StatCard(
+                  label: 'Баланс',
+                  value: '\$${_balance.toStringAsFixed(2)}',
+                  color: Colors.white,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatCard(
+                  label: 'P&L за день',
+                  value: '${_dailyPnl >= 0 ? '+' : ''}\$${_dailyPnl.toStringAsFixed(2)}',
+                  color: _dailyPnl >= 0 ? kGreen : kRed,
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _StatCard(
+                  label: 'Сделки',
+                  value: '$_tradeCount',
+                  color: kGold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          const Text('Открытые позиции',
+              style: TextStyle(
+                  color: kDim, fontSize: 13, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          if (_error != null)
+            Center(
+                child: Text(_error!, style: const TextStyle(color: kRed)))
+          else if (_positions.isEmpty)
+            const Center(
+              child: Padding(
+                padding: EdgeInsets.all(32),
+                child: Text('Нет открытых позиций',
+                    style: TextStyle(color: kDim)),
+              ),
+            )
+          else
+            ..._positions.map((p) => _PositionCard(
+                position: p, onClose: () => _closePosition(p['id'].toString()))),
+        ],
+      ),
+    );
+  }
+}
+
+class _StatCard extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _StatCard(
+      {required this.label, required this.value, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 14),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(color: kDim, fontSize: 11)),
+          const SizedBox(height: 4),
+          Text(value,
+              style: TextStyle(
+                  color: color, fontSize: 15, fontWeight: FontWeight.bold)),
+        ],
+      ),
+    );
+  }
+}
+
+class _PositionCard extends StatelessWidget {
+  final dynamic position;
+  final VoidCallback onClose;
+  const _PositionCard({required this.position, required this.onClose});
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, dynamic> p =
+        position is Map<String, dynamic> ? position : {};
+    final pair = p['pair'] ?? p['symbol'] ?? '—';
+    final side = (p['side'] ?? p['direction'] ?? '').toString().toUpperCase();
+    final entry = p['entry'] ?? p['entry_price'];
+    final pnl = (p['pnl'] as num?)?.toDouble() ?? 0;
+    final isLong = side.contains('LONG') || side.contains('BUY');
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(pair.toString(),
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold)),
+                      const SizedBox(width: 8),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: (isLong ? kGreen : kRed).withOpacity(0.15),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: Text(side,
+                            style: TextStyle(
+                                color: isLong ? kGreen : kRed,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  if (entry != null) ...[
+                    const SizedBox(height: 4),
+                    Text('Вход: $entry',
+                        style: const TextStyle(color: kDim, fontSize: 12)),
+                  ],
+                  Text(
+                      'P&L: ${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
+                      style: TextStyle(
+                          color: pnl >= 0 ? kGreen : kRed,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600)),
+                ],
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.close, color: kRed),
+              onPressed: onClose,
+              tooltip: 'Закрыть позицию',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Channels Tab ─────────────────────────────────────────────────────────────
+class ChannelsTab extends StatefulWidget {
+  const ChannelsTab({super.key});
+
+  @override
+  State<ChannelsTab> createState() => _ChannelsTabState();
+}
+
+class _ChannelsTabState extends State<ChannelsTab> {
+  List<dynamic> _channels = [];
+  bool _loading = true;
+  bool _isOwner = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    final data = await apiGetList('/channels');
+    if (SessionManager.isLoggedIn) {
+      final me = await apiGet('/users/me', auth: true);
+      if (mounted) {
+        setState(() => _isOwner = me?['is_owner'] == true);
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _channels = data ?? [];
+      });
+    }
+  }
+
+  Future<void> _addChannel() async {
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (ctx) => const _AddChannelDialog(),
+    );
+    if (result == null) return;
+    final ok = await apiPost('/channels', result, auth: true);
+    if (ok != null) {
+      _showToast('Канал добавлен');
+      _fetch();
+    } else {
+      _showToast('Ошибка добавления');
+    }
+  }
+
+  Future<void> _deleteChannel(String id) async {
+    final ok = await apiDelete('/channels/$id', auth: true);
+    if (ok) {
+      _showToast('Канал удалён');
+      _fetch();
+    } else {
+      _showToast('Ошибка удаления');
+    }
+  }
+
+  Future<void> _toggleChannel(String id, bool active) async {
+    final ok = await apiPatch('/channels/$id', {'active': !active}, auth: true);
+    if (ok) {
+      _fetch();
+    } else {
+      _showToast('Ошибка изменения статуса');
+    }
+  }
+
+  Future<void> _analyzeChannel(String id) async {
+    _showToast('Анализирую канал...');
+    final resp = await apiPost('/channels/$id/analyze', {}, auth: true);
+    if (resp != null) {
+      _showToast('Анализ завершён');
+    } else {
+      _showToast('Ошибка анализа');
+    }
+  }
+
+  void _showToast(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(msg), backgroundColor: kCard),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(color: kGold));
+    }
+    return Scaffold(
+      backgroundColor: kBg,
+      body: RefreshIndicator(
+        color: kGold,
+        onRefresh: _fetch,
+        child: _channels.isEmpty
+            ? const Center(
+                child: Text('Нет каналов', style: TextStyle(color: kDim)),
+              )
+            : ListView.builder(
+                padding: const EdgeInsets.all(8),
+                itemCount: _channels.length,
+                itemBuilder: (ctx, i) => _ChannelCard(
+                  channel: _channels[i],
+                  isOwner: _isOwner,
+                  onDelete: () => _deleteChannel(_channels[i]['id'].toString()),
+                  onToggle: () => _toggleChannel(
+                      _channels[i]['id'].toString(),
+                      _channels[i]['active'] == true),
+                  onAnalyze: () =>
+                      _analyzeChannel(_channels[i]['id'].toString()),
+                ),
+              ),
+      ),
+      floatingActionButton: _isOwner
+          ? FloatingActionButton(
+              onPressed: _addChannel,
+              tooltip: 'Добавить канал',
+              child: const Icon(Icons.add),
+            )
+          : null,
+    );
+  }
+}
+
+class _ChannelCard extends StatelessWidget {
+  final dynamic channel;
+  final bool isOwner;
+  final VoidCallback onDelete;
+  final VoidCallback onToggle;
+  final VoidCallback onAnalyze;
+
+  const _ChannelCard({
+    required this.channel,
+    required this.isOwner,
+    required this.onDelete,
+    required this.onToggle,
+    required this.onAnalyze,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Map<String, dynamic> c =
+        channel is Map<String, dynamic> ? channel : {};
+    final name = c['name'] ?? c['title'] ?? '—';
+    final active = c['active'] == true;
+    final pnl = (c['daily_pnl'] as num?)?.toDouble();
+
+    return Card(
+      margin: const EdgeInsets.symmetric(vertical: 4),
+      child: InkWell(
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => ChannelSignalsScreen(
+                channelId: c['id'].toString(),
+                channelName: name.toString()),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: active ? kGreen : kDim,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(name.toString(),
+                        style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold)),
+                  ),
+                  if (isOwner) ...[
+                    IconButton(
+                      icon: Icon(
+                          active ? Icons.pause_circle : Icons.play_circle,
+                          color: kGold,
+                          size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: onToggle,
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.analytics_outlined,
+                          color: kDim, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: onAnalyze,
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton(
+                      icon: const Icon(Icons.delete_outline,
+                          color: kRed, size: 20),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                      onPressed: onDelete,
+                    ),
+                  ],
+                ],
+              ),
+              if (pnl != null) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'P&L сегодня: ${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
+                  style: TextStyle(
+                      color: pnl >= 0 ? kGreen : kRed, fontSize: 12),
+                ),
+              ],
+              const SizedBox(height: 4),
+              Text('Нажмите для истории сигналов',
+                  style: const TextStyle(color: kDim, fontSize: 11)),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _AddChannelDialog extends StatefulWidget {
+  const _AddChannelDialog();
+
+  @override
+  State<_AddChannelDialog> createState() => _AddChannelDialogState();
+}
+
+class _AddChannelDialogState extends State<_AddChannelDialog> {
+  final _nameCtrl = TextEditingController();
+  final _urlCtrl = TextEditingController();
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: kCard,
+      title: const Text('Добавить канал', style: TextStyle(color: kGold)),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(
+              labelText: 'Название',
+              labelStyle: TextStyle(color: kDim),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _urlCtrl,
+            decoration: const InputDecoration(
+              labelText: 'URL / Username',
+              labelStyle: TextStyle(color: kDim),
+            ),
+            style: const TextStyle(color: Colors.white),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена', style: TextStyle(color: kDim)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context, {
+            'name': _nameCtrl.text,
+            'url': _urlCtrl.text,
+          }),
+          child: const Text('Добавить', style: TextStyle(color: kGold)),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Channel Signals Screen ───────────────────────────────────────────────────
+class ChannelSignalsScreen extends StatefulWidget {
+  final String channelId;
+  final String channelName;
+
+  const ChannelSignalsScreen(
+      {super.key, required this.channelId, required this.channelName});
+
+  @override
+  State<ChannelSignalsScreen> createState() => _ChannelSignalsScreenState();
+}
+
+class _ChannelSignalsScreenState extends State<ChannelSignalsScreen> {
+  List<dynamic> _signals = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    final data = await apiGetList(
+        '/signals?channel=${Uri.encodeComponent(widget.channelName)}&limit=20');
+    if (mounted) {
+      setState(() {
+        _loading = false;
+        _signals = data ?? [];
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.channelName)),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator(color: kGold))
+          : _signals.isEmpty
+              ? const Center(
+                  child: Text('Нет сигналов', style: TextStyle(color: kDim)))
+              : ListView.builder(
+                  padding: const EdgeInsets.all(8),
+                  itemCount: _signals.length,
+                  itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i]),
+                ),
+    );
+  }
+}
+
+// ─── Backtest Tab ─────────────────────────────────────────────────────────────
+class BacktestTab extends StatelessWidget {
+  const BacktestTab({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.construction, color: kGold.withOpacity(0.5), size: 64),
+          const SizedBox(height: 16),
+          const Text('В разработке',
+              style: TextStyle(
+                  color: kGold, fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 8),
+          const Text('Бэктест будет доступен в следующей версии',
+              style: TextStyle(color: kDim)),
+        ],
+      ),
+    );
+  }
+}
