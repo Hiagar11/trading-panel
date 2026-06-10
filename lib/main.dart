@@ -13,8 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 39;
-const String kCurrentVersion = '1.5.6';
+const int kCurrentBuild = 40;
+const String kCurrentVersion = '1.5.7';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -294,11 +294,14 @@ class _HomeScreenState extends State<HomeScreen> {
   int _openPositions = 0;
   Timer? _statusTimer;
   Timer? _checkUpdateTimer;
+  Timer? _healthTimer;
   WebSocket? _ws;
   bool _wsConnected = false;
   double _downloadProgress = 0.0;
   String _latestVersion = kCurrentVersion;
   bool _updateInProgress = false;
+  bool _botHealthy = false;
+  int _lastSignalSecondsAgo = -1;
 
   @override
   void initState() {
@@ -316,6 +319,8 @@ class _HomeScreenState extends State<HomeScreen> {
     // GitHub fallback update check (runs when VPS is unreachable)
     _checkUpdate();
     _checkUpdateTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkUpdate());
+    _fetchHealth();
+    _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) => _fetchHealth());
   }
 
   void _connectWs() async {
@@ -574,10 +579,22 @@ class _HomeScreenState extends State<HomeScreen> {
     await _fetchStatus();
   }
 
+  Future<void> _fetchHealth() async {
+    final data = await apiGet('/health');
+    if (mounted) {
+      setState(() {
+        _botHealthy = data?['vps'] == true;
+        _lastSignalSecondsAgo =
+            (data?['last_signal_seconds_ago'] as num?)?.toInt() ?? -1;
+      });
+    }
+  }
+
   @override
   void dispose() {
     _statusTimer?.cancel();
     _checkUpdateTimer?.cancel();
+    _healthTimer?.cancel();
     _ws?.close();
     super.dispose();
   }
@@ -609,6 +626,34 @@ class _HomeScreenState extends State<HomeScreen> {
                     fontSize: 11,
                   ),
                 ),
+                const SizedBox(width: 8),
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _lastSignalSecondsAgo < 0
+                        ? Colors.grey
+                        : _lastSignalSecondsAgo > 3600
+                            ? Colors.amber
+                            : Colors.green,
+                  ),
+                ),
+                const SizedBox(width: 3),
+                if (_lastSignalSecondsAgo >= 0)
+                  Text(
+                    _lastSignalSecondsAgo < 60
+                        ? '<1m'
+                        : _lastSignalSecondsAgo < 3600
+                            ? '${_lastSignalSecondsAgo ~/ 60}m'
+                            : '${_lastSignalSecondsAgo ~/ 3600}h',
+                    style: TextStyle(
+                      color: _lastSignalSecondsAgo > 3600
+                          ? Colors.amber
+                          : Colors.green,
+                      fontSize: 10,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1081,6 +1126,12 @@ class _SignalCard extends StatelessWidget {
                             fontSize: 12,
                             fontWeight: FontWeight.bold)),
                   ),
+                const SizedBox(width: 6),
+                _OutcomeBadge(
+                  outcome: s['outcome']?.toString() ??
+                      s['status']?.toString() ??
+                      s['result']?.toString(),
+                ),
               ],
             ),
             const SizedBox(height: 6),
@@ -1131,6 +1182,39 @@ class _InfoChip extends StatelessWidget {
   }
 }
 
+class _OutcomeBadge extends StatelessWidget {
+  final String? outcome;
+  const _OutcomeBadge({this.outcome});
+
+  @override
+  Widget build(BuildContext context) {
+    final o = outcome?.toLowerCase() ?? '';
+    final Color color;
+    final String label;
+    if (o.contains('tp') || o == 'win' || o == 'profit') {
+      color = kGreen;
+      label = 'TP HIT ✅';
+    } else if (o.contains('sl') || o == 'loss' || o == 'stop') {
+      color = kRed;
+      label = 'SL HIT ❌';
+    } else {
+      color = kDim;
+      label = 'OPEN ⏳';
+    }
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.5), width: 0.5),
+      ),
+      child: Text(label,
+          style: TextStyle(
+              color: color, fontSize: 10, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
 // ─── Positions Tab ────────────────────────────────────────────────────────────
 class PositionsTab extends StatefulWidget {
   const PositionsTab({super.key});
@@ -1147,12 +1231,28 @@ class _PositionsTabState extends State<PositionsTab> {
   bool _loading = true;
   String? _error;
   Timer? _timer;
+  Timer? _fundingTimer;
+  Map<String, double> _fundingRates = {};
 
   @override
   void initState() {
     super.initState();
     _fetch();
+    _fetchFunding();
     _timer = Timer.periodic(const Duration(seconds: 15), (_) => _fetch());
+    _fundingTimer =
+        Timer.periodic(const Duration(seconds: 60), (_) => _fetchFunding());
+  }
+
+  Future<void> _fetchFunding() async {
+    final data = await apiGet('/funding');
+    if (data != null && mounted) {
+      final rates = <String, double>{};
+      data.forEach((k, v) {
+        if (v is num) rates[k] = v.toDouble();
+      });
+      setState(() => _fundingRates = rates);
+    }
   }
 
   Future<void> _fetch() async {
@@ -1202,6 +1302,7 @@ class _PositionsTabState extends State<PositionsTab> {
   @override
   void dispose() {
     _timer?.cancel();
+    _fundingTimer?.cancel();
     super.dispose();
   }
 
@@ -1276,8 +1377,14 @@ class _PositionsTabState extends State<PositionsTab> {
               ),
             )
           else
-            ..._positions.map((p) => _PositionCard(
-                position: p, onClose: () => _closePosition(p['id'].toString()))),
+            ..._positions.map((p) {
+              final pair = (p['pair'] ?? p['symbol'] ?? '').toString();
+              return _PositionCard(
+                position: p,
+                onClose: () => _closePosition(p['id'].toString()),
+                fundingRate: _fundingRates[pair],
+              );
+            }),
         ],
       ),
     );
@@ -1317,7 +1424,9 @@ class _StatCard extends StatelessWidget {
 class _PositionCard extends StatelessWidget {
   final dynamic position;
   final VoidCallback onClose;
-  const _PositionCard({required this.position, required this.onClose});
+  final double? fundingRate;
+  const _PositionCard(
+      {required this.position, required this.onClose, this.fundingRate});
 
   @override
   Widget build(BuildContext context) {
@@ -1365,6 +1474,15 @@ class _PositionCard extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text('Вход: $entry',
                         style: const TextStyle(color: kDim, fontSize: 12)),
+                  ],
+                  if (fundingRate != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'FR: ${fundingRate! >= 0 ? '+' : ''}${(fundingRate! * 100).toStringAsFixed(4)}%',
+                      style: TextStyle(
+                          color: fundingRate! >= 0 ? kGreen : kRed,
+                          fontSize: 11),
+                    ),
                   ],
                   Text(
                       'P&L: ${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
@@ -1460,9 +1578,21 @@ class _ChannelsTabState extends State<ChannelsTab> {
         signal['id']?.toString() ?? signal['timestamp']?.toString();
     if (id == null) return;
     if (id != _lastSignalId && _lastSignalId != null) {
-      final title = 'Новый сигнал: ${signal['pair'] ?? 'UNKNOWN'}';
-      final body =
-          '${signal['direction'] ?? ''} • ${signal['channel_title'] ?? ''}';
+      final pair = signal['pair'] ?? signal['symbol'] ?? 'UNKNOWN';
+      final direction =
+          (signal['direction'] ?? signal['side'] ?? '').toString().toUpperCase();
+      final entry = signal['price'] ?? signal['entry'] ?? signal['entry_price'];
+      final tp = signal['tp'] ?? signal['take_profit'];
+      final sl = signal['sl'] ?? signal['stop_loss'];
+      final title =
+          direction.isNotEmpty ? '$pair $direction' : 'Новый сигнал: $pair';
+      final bodyParts = <String>[];
+      if (entry != null) bodyParts.add('Вход: \$$entry');
+      if (tp != null) bodyParts.add('TP: \$$tp');
+      if (sl != null) bodyParts.add('SL: \$$sl');
+      final body = bodyParts.isNotEmpty
+          ? bodyParts.join(' | ')
+          : (signal['channel_title']?.toString() ?? '');
       showSignalNotification(title, body);
     }
     _lastSignalId = id;
