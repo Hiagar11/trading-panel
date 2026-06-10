@@ -13,8 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 34;
-const String kCurrentVersion = '1.5.1';
+const int kCurrentBuild = 35;
+const String kCurrentVersion = '1.5.2';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
