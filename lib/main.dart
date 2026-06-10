@@ -13,8 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 37;
-const String kCurrentVersion = '1.5.4';
+const int kCurrentBuild = 38;
+const String kCurrentVersion = '1.5.5';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -374,6 +374,29 @@ class _HomeScreenState extends State<HomeScreen> {
         _balance = (data['balance'] as num?)?.toDouble() ?? _balance;
         _openPositions = (data['open_positions'] as num?)?.toInt() ?? _openPositions;
       });
+      if (data['build'] != null) {
+        final serverBuild = data['build'] as int;
+        if (serverBuild > kCurrentBuild && !_updateInProgress) {
+          _updateInProgress = true;
+          _notificationsPlugin.show(
+            99,
+            'Доступно обновление',
+            'Версия $serverBuild готова к установке.',
+            const NotificationDetails(
+              android: AndroidNotificationDetails(
+                'update_channel',
+                'Обновления',
+                channelDescription: 'Уведомления об обновлениях',
+                importance: Importance.max,
+                priority: Priority.high,
+                icon: '@mipmap/ic_launcher',
+              ),
+            ),
+            payload: 'do_update',
+          );
+          _downloadAndInstall('');
+        }
+      }
     }
   }
 
