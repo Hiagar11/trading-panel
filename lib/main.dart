@@ -14,7 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 51;
+const int kCurrentBuild = 52;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -25,6 +25,24 @@ const kGold = Color(0xFFD4A017);
 const kGreen = Color(0xFF22D3A5);
 const kRed = Color(0xFFFF4466);
 const kDim = Color(0xFF6B6B6B);
+
+// ─── UI Mode ──────────────────────────────────────────────────────────────────
+enum UiMode { basic, advanced }
+
+final _uiMode = ValueNotifier<UiMode>(UiMode.basic);
+
+Future<void> _loadUiMode() async {
+  final prefs = await SharedPreferences.getInstance();
+  final val = prefs.getString('ui_mode');
+  _uiMode.value = val == 'advanced' ? UiMode.advanced : UiMode.basic;
+}
+
+Future<void> _toggleUiMode() async {
+  final next = _uiMode.value == UiMode.basic ? UiMode.advanced : UiMode.basic;
+  _uiMode.value = next;
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setString('ui_mode', next.name);
+}
 
 // ─── Install channel ─────────────────────────────────────────────────────────
 const _installChannel = MethodChannel('com.example.trading_panel/install');
@@ -453,6 +471,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _init() async {
     await SessionManager.load();
+    await _loadUiMode();
     await _requestPermissions();
     _fetchStatus();
     _wsService.connect();
@@ -802,10 +821,43 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          _WatcherControlWidget(
-            alive: _watcherAlive,
-            onPlay: () => _setWatcher(true),
-            onPause: () => _setWatcher(false),
+          ValueListenableBuilder<UiMode>(
+            valueListenable: _uiMode,
+            builder: (_, mode, __) => mode == UiMode.advanced
+                ? _WatcherControlWidget(
+                    alive: _watcherAlive,
+                    onPlay: () => _setWatcher(true),
+                    onPause: () => _setWatcher(false),
+                  )
+                : const SizedBox.shrink(),
+          ),
+          ValueListenableBuilder<UiMode>(
+            valueListenable: _uiMode,
+            builder: (_, mode, __) => GestureDetector(
+              onTap: _toggleUiMode,
+              child: Container(
+                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: mode == UiMode.advanced
+                      ? kGold.withOpacity(0.18)
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: mode == UiMode.advanced ? kGold : kDim,
+                    width: 0.8,
+                  ),
+                ),
+                child: Text(
+                  mode == UiMode.basic ? 'BASIC' : 'ADV',
+                  style: TextStyle(
+                    color: mode == UiMode.advanced ? kGold : kDim,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ),
           ),
           IconButton(
             icon: const Icon(Icons.account_circle),
@@ -1817,10 +1869,15 @@ class _PositionCard extends StatelessWidget {
                 ],
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close, color: kRed),
-              onPressed: onClose,
-              tooltip: 'Закрыть позицию',
+            ValueListenableBuilder<UiMode>(
+              valueListenable: _uiMode,
+              builder: (_, mode, __) => mode == UiMode.advanced
+                  ? IconButton(
+                      icon: const Icon(Icons.close, color: kRed),
+                      onPressed: onClose,
+                      tooltip: 'Закрыть позицию',
+                    )
+                  : const SizedBox.shrink(),
             ),
           ],
         ),
@@ -2095,33 +2152,44 @@ class _ChannelCard extends StatelessWidget {
                             color: Colors.white,
                             fontWeight: FontWeight.bold)),
                   ),
-                  if (isOwner) ...[
-                    IconButton(
-                      icon: Icon(
-                          active ? Icons.pause_circle : Icons.play_circle,
-                          color: kGold,
-                          size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: onToggle,
+                  if (isOwner)
+                    ValueListenableBuilder<UiMode>(
+                      valueListenable: _uiMode,
+                      builder: (_, mode, __) => mode == UiMode.advanced
+                          ? Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  icon: Icon(
+                                      active
+                                          ? Icons.pause_circle
+                                          : Icons.play_circle,
+                                      color: kGold,
+                                      size: 20),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: onToggle,
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.analytics_outlined,
+                                      color: kDim, size: 20),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: onAnalyze,
+                                ),
+                                const SizedBox(width: 8),
+                                IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: kRed, size: 20),
+                                  padding: EdgeInsets.zero,
+                                  constraints: const BoxConstraints(),
+                                  onPressed: onDelete,
+                                ),
+                              ],
+                            )
+                          : const SizedBox.shrink(),
                     ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.analytics_outlined,
-                          color: kDim, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: onAnalyze,
-                    ),
-                    const SizedBox(width: 8),
-                    IconButton(
-                      icon: const Icon(Icons.delete_outline,
-                          color: kRed, size: 20),
-                      padding: EdgeInsets.zero,
-                      constraints: const BoxConstraints(),
-                      onPressed: onDelete,
-                    ),
-                  ],
                 ],
               ),
               if (pnl != null) ...[
