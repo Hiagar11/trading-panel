@@ -7,7 +7,7 @@
 - [x] debug: check _downloadAndInstall — what happens if storage permission denied mid-download
 - [x] feature: pull-to-refresh on signals list (RefreshIndicator wrapper)
 - [x] feature: signal list sorting toggle (newest first / by pair / by P&L)
-- [ ] feature: long-press on signal card to copy pair to clipboard
+- [x] feature: long-press on signal card to copy pair to clipboard
 - [ ] feature: haptic feedback on new signal push notification
 - [ ] feature: show timestamp "2h ago" style on each signal card (relative time, refresh every minute)
 - [ ] research: COMPREHENSIVE BEST PRACTICES — search web across 3 angles: (1) "flutter trading app network resilience best practices 2025" — reconnect strategies, offline queue, retry backoff; (2) "crypto trading mobile UX patterns 2025" — signal display, P&L visualization, order flow UX, dark theme conventions; (3) "flutter android performance optimization memory leaks 2025" — list virtualization, image caching, timer/stream disposal, jank prevention. Synthesize top 10 actionable findings and add as feature/debug tasks below.
@@ -33,6 +33,7 @@
 - 05:35 UTC | debug: _downloadAndInstall storage/install permission — added REQUEST_INSTALL_PACKAGES check before download, moved cleanup to finally block | done | build 43
 - 06:05 UTC | feature: pull-to-refresh signals — RefreshIndicator on all states (list/empty/error), AlwaysScrollableScrollPhysics, hint text on empty/error | done | build 44
 - 06:37 UTC | feature: signal list sorting toggle — _SignalSort enum (newest/pair/pnl), chip bar above list, stateful sort in _SignalsTabState | done | build 45
+- 07:07 UTC | feature: long-press signal card copies pair to clipboard — GestureDetector + Clipboard.setData + SnackBar confirmation; fixed stale kCurrentBuild (43→46) | done | build 46
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
