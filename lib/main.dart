@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 46;
+const int kCurrentBuild = 47;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -64,6 +64,7 @@ Future<void> initNotifications({
 }
 
 Future<void> showSignalNotification(String title, String body) async {
+  HapticFeedback.heavyImpact();
   const AndroidNotificationDetails androidDetails = AndroidNotificationDetails(
     'signals',
     'Сигналы',
