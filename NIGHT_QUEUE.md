@@ -28,7 +28,7 @@
 - [x] research: search web for "flutter android performance optimization tips" and add relevant ones (subsumed by comprehensive research)
 
 ## WAVE 2 — Next tasks
-- [ ] feature: real-time price ticker on open positions — WebSocket price feed from MEXC, show current price + unrealized P&L % live (update every 2s)
+- [x] feature: real-time price ticker on open positions — WebSocket price feed from MEXC, show current price + unrealized P&L % live (update every 2s)
 - [ ] feature: mini spark-chart on open position card — last 20 price points, green/red line depending on direction, no axis labels
 - [ ] infra: Let's Encrypt cert via certbot — replace self-signed cert; run certbot certonly --standalone for server IP/domain, update api_server.py paths, restart server
 - [ ] feature: FCM push notifications — integrate firebase_messaging plugin, register device token on login, send signal push via FCM from api_server.py instead of local notification only (works even when app is in background/killed)
@@ -75,6 +75,7 @@
 - 09:01 UTC | feature: dev menu with memory profiling stats — long-press AppBar title opens _DevMenuDialog; shows current RSS, peak RSS, GC pressure %, refreshes every 2s; Timeline.startSync hint for --profile DevTools | done | build 54
 - 09:08 UTC | debug: progress indicators for all transactions — added AlertDialog with CircularProgressIndicator to: _closePosition, _setWatcher, _logout, _addChannel, _deleteChannel, _toggleChannel, _analyzeChannel | done | build 55
 - 09:10 UTC | feature: dark mode customization panel — _ThemeCustom ValueNotifier (accent 4 presets, card contrast 3 presets, grid/card view toggle), _ThemePanelDialog with color swatches + view toggle, accessible via profile sheet "Вид" button, MaterialApp rebuilds on theme change via ValueListenableBuilder, SignalsTab supports 2-col grid via CustomScrollView+SliverGrid | done | build 56
+- 09:46 UTC | feature: real-time price ticker on open positions — _PositionCard→StatefulWidget, Timer.periodic 2s, HTTP GET MEXC ticker API per pair, shows Live price + unrealized P&L%, green/red color | done | build 57
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43

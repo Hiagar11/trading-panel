@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 57;
+const int kCurrentBuild = 58;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -2509,6 +2509,7 @@ class _PositionCard extends StatefulWidget {
 class _PositionCardState extends State<_PositionCard> {
   double? _livePrice;
   Timer? _tickerTimer;
+  final List<double> _priceHistory = [];
 
   @override
   void initState() {
@@ -2528,7 +2529,6 @@ class _PositionCardState extends State<_PositionCard> {
         widget.position is Map<String, dynamic> ? widget.position as Map<String, dynamic> : {};
     final rawPair = (p['pair'] ?? p['symbol'] ?? '').toString().toUpperCase();
     if (rawPair.isEmpty || rawPair == '—') return;
-    // Ensure symbol ends with USDT for MEXC API
     final symbol = rawPair.contains('USDT') ? rawPair : '${rawPair}USDT';
     try {
       final resp = await http
@@ -2537,7 +2537,13 @@ class _PositionCardState extends State<_PositionCard> {
       if (resp.statusCode == 200) {
         final data = jsonDecode(resp.body) as Map<String, dynamic>;
         final price = double.tryParse(data['price']?.toString() ?? '');
-        if (price != null && mounted) setState(() => _livePrice = price);
+        if (price != null && mounted) {
+          setState(() {
+            _livePrice = price;
+            _priceHistory.add(price);
+            if (_priceHistory.length > 20) _priceHistory.removeAt(0);
+          });
+        }
       }
     } catch (_) {}
   }
@@ -2640,6 +2646,17 @@ class _PositionCardState extends State<_PositionCard> {
                 ],
               ),
             ),
+            if (_priceHistory.length >= 2) ...[
+              const SizedBox(width: 8),
+              CustomPaint(
+                size: const Size(60, 30),
+                painter: _SparkPainter(
+                  prices: List.unmodifiable(_priceHistory),
+                  isUp: _priceHistory.last >= _priceHistory.first,
+                ),
+              ),
+              const SizedBox(width: 4),
+            ],
             ValueListenableBuilder<UiMode>(
               valueListenable: _uiMode,
               builder: (_, mode, __) => mode == UiMode.advanced
@@ -2655,6 +2672,44 @@ class _PositionCardState extends State<_PositionCard> {
       ),
     );
   }
+}
+
+// ─── Spark-chart painter ──────────────────────────────────────────────────────
+class _SparkPainter extends CustomPainter {
+  final List<double> prices;
+  final bool isUp;
+  const _SparkPainter({required this.prices, required this.isUp});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (prices.length < 2) return;
+    final minP = prices.reduce((a, b) => a < b ? a : b);
+    final maxP = prices.reduce((a, b) => a > b ? a : b);
+    final range = maxP - minP;
+    final paint = Paint()
+      ..color = isUp ? kGreen : kRed
+      ..strokeWidth = 1.5
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round
+      ..strokeJoin = StrokeJoin.round;
+    final path = Path();
+    for (var i = 0; i < prices.length; i++) {
+      final x = i / (prices.length - 1) * size.width;
+      final y = range > 0
+          ? size.height - ((prices[i] - minP) / range) * size.height
+          : size.height / 2;
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
+    }
+    canvas.drawPath(path, paint);
+  }
+
+  @override
+  bool shouldRepaint(_SparkPainter old) =>
+      old.prices != prices || old.isUp != isUp;
 }
 
 // ─── Balance Card ─────────────────────────────────────────────────────────────
