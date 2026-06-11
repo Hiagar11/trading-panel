@@ -31,8 +31,8 @@
 - [x] feature: real-time price ticker on open positions — WebSocket price feed from MEXC, show current price + unrealized P&L % live (update every 2s)
 - [x] feature: mini spark-chart on open position card — last 20 price points, green/red line depending on direction, no axis labels
 - [~] SKIP: Let's Encrypt cert via certbot — certbot unavailable on system; self-signed RSA-4096 cert already in place (key.pem+cert.pem from 08:34 UTC), api_server.py already configured with ssl_keyfile/ssl_certfile
-- [ ] feature: FCM push notifications — integrate firebase_messaging plugin, register device token on login, send signal push via FCM from api_server.py instead of local notification only (works even when app is in background/killed)
-- [ ] feature: P&L summary card on home screen — total realized P&L (sum of closed positions), win rate %, best/worst trade of the day
+- [~] SKIP: FCM push notifications — google-services.json not found in android/app/; FCM requires Firebase Console credentials to configure
+- [x] feature: P&L summary card on home screen — total realized P&L (sum of closed positions), win rate %, best/worst trade of the day
 - [ ] feature: signal detail sheet — tap signal card opens bottom sheet with full details: entry/TP/SL levels, chart context, time elapsed, notes from channel
 - [ ] feature: channel performance stats — per-channel win rate, avg P&L, total signals, best/worst pair; tap channel name to open stats sheet
 - [ ] debug: audit api_server.py endpoints — check all endpoints return correct status codes, add /health returning {status, uptime, open_positions_count, last_signal_ts}; verify /funding and /ws behave correctly under HTTPS
@@ -78,6 +78,8 @@
 - 09:46 UTC | feature: real-time price ticker on open positions — _PositionCard→StatefulWidget, Timer.periodic 2s, HTTP GET MEXC ticker API per pair, shows Live price + unrealized P&L%, green/red color | done | build 57
 - 09:51 UTC | feature: mini spark-chart on open position card — rolling List<double> _priceHistory (20 pts), _SparkPainter CustomPainter polyline 60x30px, green if last>=first else red, no axes | done | build 58
 - 09:55 UTC | infra: Let's Encrypt cert via certbot — checked system, certbot not available; verified self-signed cert already configured (key.pem+cert.pem from 08:34 UTC), api_server.py already has ssl_keyfile/ssl_certfile params | skip | no-build
+- 09:56 UTC | feature: FCM push notifications — google-services.json not found; cannot configure FCM without Firebase credentials | skip | no-build
+- 10:00 UTC | feature: P&L summary card on home screen — _PnlSummaryCard widget with 3 chips (daily P&L, win rate, best pair), /stats/daily enhanced with win_rate+best_pair+best_pnl fields, graceful zeros if events.jsonl missing | done | build 59
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43

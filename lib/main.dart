@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 59;
+const int kCurrentBuild = 60;
 const String kCurrentVersion = '1.5.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -2131,6 +2131,7 @@ class _SignalCardState extends State<_SignalCard> {
             : kDim;
 
     return GestureDetector(
+      onTap: () => _showSignalDetail(context, s),
       onLongPress: () {
         Clipboard.setData(ClipboardData(text: pair.toString()));
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2209,6 +2210,172 @@ class _SignalCardState extends State<_SignalCard> {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+void _showSignalDetail(BuildContext context, Map<String, dynamic> s) {
+  showModalBottomSheet(
+    context: context,
+    backgroundColor: Colors.transparent,
+    isScrollControlled: true,
+    builder: (ctx) => _SignalDetailSheet(signal: s),
+  );
+}
+
+class _SignalDetailSheet extends StatelessWidget {
+  final Map<String, dynamic> signal;
+  const _SignalDetailSheet({required this.signal});
+
+  @override
+  Widget build(BuildContext context) {
+    final s = signal;
+    final pair = s['pair'] ?? s['symbol'] ?? s['channel'] ?? '—';
+    final direction =
+        (s['direction'] ?? s['side'] ?? s['type'] ?? '').toString().toUpperCase();
+    final price = s['price'] ?? s['entry'] ?? s['entry_price'];
+    final sl = s['sl'] ?? s['stop_loss'];
+    final tp = s['tp'] ?? s['take_profit'];
+    final ts = s['timestamp'] ?? s['created_at'] ?? s['time'];
+    final channelName =
+        s['channel_title'] ?? s['channel_name'] ?? s['channel'] ?? '—';
+    final outcome = s['outcome'] ?? s['status'] ?? s['result'];
+    final relTime = _relativeTime(ts);
+    final isLong = direction.contains('LONG') || direction.contains('BUY');
+    final isShort = direction.contains('SHORT') || direction.contains('SELL');
+    final dirColor = isLong
+        ? kGreen
+        : isShort
+            ? kRed
+            : kDim;
+
+    const knownKeys = {
+      'pair', 'symbol', 'channel', 'direction', 'side', 'type',
+      'price', 'entry', 'entry_price', 'sl', 'stop_loss', 'tp', 'take_profit',
+      'timestamp', 'created_at', 'time', 'channel_title', 'channel_name',
+      'outcome', 'status', 'result', 'id',
+    };
+    final extraFields =
+        s.entries.where((e) => !knownKeys.contains(e.key)).toList();
+
+    return DraggableScrollableSheet(
+      initialChildSize: 0.6,
+      minChildSize: 0.35,
+      maxChildSize: 0.92,
+      builder: (_, scrollCtrl) => Container(
+        decoration: const BoxDecoration(
+          color: kCard,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          children: [
+            Container(
+              margin: const EdgeInsets.only(top: 10, bottom: 6),
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                color: kDim.withOpacity(0.4),
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 4, 8, 8),
+              child: Row(
+                children: [
+                  Text(pair.toString(),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18)),
+                  const SizedBox(width: 8),
+                  if (direction.isNotEmpty)
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: dirColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: dirColor, width: 0.5),
+                      ),
+                      child: Text(direction,
+                          style: TextStyle(
+                              color: dirColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                  const SizedBox(width: 6),
+                  _OutcomeBadge(outcome: outcome?.toString()),
+                  const Spacer(),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: kDim),
+                    onPressed: () => Navigator.pop(context),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                  ),
+                ],
+              ),
+            ),
+            const Divider(color: kDim, height: 1),
+            Expanded(
+              child: ListView(
+                controller: scrollCtrl,
+                padding: const EdgeInsets.all(16),
+                children: [
+                  _DetailRow('Вход', price?.toString() ?? '—', Colors.white),
+                  _DetailRow('TP', tp?.toString() ?? '—', kGreen),
+                  _DetailRow('SL', sl?.toString() ?? '—', kRed),
+                  if (ts != null) ...[
+                    _DetailRow('Прошло', relTime, kGold),
+                    _DetailRow('Дата', ts.toString(), kDim),
+                  ],
+                  _DetailRow('Канал', channelName.toString(), kDim),
+                  if (extraFields.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    const Text('Дополнительно',
+                        style: TextStyle(
+                            color: kDim, fontSize: 11, letterSpacing: 0.8)),
+                    const SizedBox(height: 8),
+                    ...extraFields.map((e) =>
+                        _DetailRow(e.key, e.value?.toString() ?? '—', kDim)),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _DetailRow extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _DetailRow(this.label, this.value, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 5),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 72,
+            child: Text(label,
+                style: const TextStyle(color: kDim, fontSize: 13)),
+          ),
+          Expanded(
+            child: Text(value,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500),
+                overflow: TextOverflow.ellipsis,
+                maxLines: 2),
+          ),
+        ],
       ),
     );
   }
