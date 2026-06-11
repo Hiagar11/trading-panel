@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">85.192.38.213</domain>
+        <trust-anchors>
+            <certificates src="@raw/server"/>
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

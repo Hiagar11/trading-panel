@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
@@ -18,8 +19,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 66;
-const String kCurrentVersion = '1.6.0';
+const int kCurrentBuild = 67;
+const String kCurrentVersion = '1.6.1';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -29,6 +30,22 @@ const kGold = Color(0xFFD4A017);
 const kGreen = Color(0xFF22D3A5);
 const kRed = Color(0xFFFF4466);
 const kDim = Color(0xFF6B6B6B);
+
+// ─── Secure HTTP/WebSocket client ────────────────────────────────────────────
+HttpClient? _secureDartIoClient;
+http.Client _secureHttpClient = http.Client();
+
+Future<void> _initSecureClient() async {
+  try {
+    final certData = await rootBundle.load('assets/certs/server.crt');
+    final secCtx = SecurityContext(withTrustedRoots: true);
+    secCtx.setTrustedCertificatesBytes(certData.buffer.asUint8List());
+    _secureDartIoClient = HttpClient(context: secCtx);
+    _secureHttpClient = IOClient(_secureDartIoClient!);
+  } catch (e) {
+    debugPrint('Secure client init failed, falling back to default: $e');
+  }
+}
 
 // ─── Theme Customization ──────────────────────────────────────────────────────
 const _kAccentPresets = [
@@ -157,7 +174,10 @@ class TradingWsService {
 
   Future<void> _doConnect() async {
     try {
-      _ws = await WebSocket.connect('wss://85.192.38.213:8766/ws');
+      _ws = await WebSocket.connect(
+        'wss://85.192.38.213:8766/ws',
+        customClient: _secureDartIoClient,
+      );
       _reconnectAttempts = 0;
       _startPingTimer();
       _ws!.listen(
@@ -312,6 +332,7 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 // ─── App entry ───────────────────────────────────────────────────────────────
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _initSecureClient();
   await Firebase.initializeApp();
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await initNotifications(onTap: _onNotificationTap);
@@ -436,7 +457,7 @@ Map<String, String> _headers({bool auth = false}) {
 Future<Map<String, dynamic>?> apiGet(String path,
     {bool auth = false}) async {
   try {
-    final resp = await http
+    final resp = await _secureHttpClient
         .get(Uri.parse('$kApiBase$path'), headers: _headers(auth: auth))
         .timeout(const Duration(seconds: 10));
     if (resp.statusCode == 200) {
@@ -450,7 +471,7 @@ Future<Map<String, dynamic>?> apiGet(String path,
 
 Future<List<dynamic>?> apiGetList(String path, {bool auth = false}) async {
   try {
-    final resp = await http
+    final resp = await _secureHttpClient
         .get(Uri.parse('$kApiBase$path'), headers: _headers(auth: auth))
         .timeout(const Duration(seconds: 10));
     if (resp.statusCode == 200) {
@@ -467,7 +488,7 @@ Future<List<dynamic>?> apiGetList(String path, {bool auth = false}) async {
 Future<Map<String, dynamic>?> apiPost(String path, Map<String, dynamic> body,
     {bool auth = false}) async {
   try {
-    final resp = await http
+    final resp = await _secureHttpClient
         .post(Uri.parse('$kApiBase$path'),
             headers: _headers(auth: auth), body: jsonEncode(body))
         .timeout(const Duration(seconds: 10));
@@ -481,7 +502,7 @@ Future<Map<String, dynamic>?> apiPost(String path, Map<String, dynamic> body,
 
 Future<bool> apiDelete(String path, {bool auth = false}) async {
   try {
-    final resp = await http
+    final resp = await _secureHttpClient
         .delete(Uri.parse('$kApiBase$path'), headers: _headers(auth: auth))
         .timeout(const Duration(seconds: 10));
     return resp.statusCode >= 200 && resp.statusCode < 300;
@@ -493,7 +514,7 @@ Future<bool> apiDelete(String path, {bool auth = false}) async {
 Future<bool> apiPatch(String path, Map<String, dynamic> body,
     {bool auth = false}) async {
   try {
-    final resp = await http
+    final resp = await _secureHttpClient
         .patch(Uri.parse('$kApiBase$path'),
             headers: _headers(auth: auth), body: jsonEncode(body))
         .timeout(const Duration(seconds: 10));
@@ -559,7 +580,7 @@ class _HomeScreenState extends State<HomeScreen> {
     debugPrint('FCM Token: $token');
     if (token != null) {
       try {
-        await http.post(
+        await _secureHttpClient.post(
           Uri.parse('$kApiBase/fcm/register'),
           headers: {'Content-Type': 'application/json'},
           body: jsonEncode({'token': token, 'platform': 'android'}),
@@ -750,9 +771,8 @@ class _HomeScreenState extends State<HomeScreen> {
       final file = File('${dir.path}/trading_panel_update.apk');
 
       // Стриминговый download с отображением прогресса
-      final client = http.Client();
       final request = http.Request('GET', Uri.parse('https://85.192.38.213:8766/download/apk'));
-      final response = await client.send(request);
+      final response = await _secureHttpClient.send(request);
       final bytes = <int>[];
       int received = 0;
       final total = response.contentLength ?? 0;
@@ -762,7 +782,6 @@ class _HomeScreenState extends State<HomeScreen> {
         if (total > 0) setState(() => _downloadProgress = received / total);
       }
       await file.writeAsBytes(bytes);
-      client.close();
 
       // Закрыть диалог
       nav.pop();
