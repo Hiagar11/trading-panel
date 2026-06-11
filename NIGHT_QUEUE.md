@@ -37,7 +37,7 @@
 - [x] feature: channel performance stats — per-channel win rate, avg P&L, total signals, best/worst pair; tap channel name to open stats sheet
 - [x] debug: audit api_server.py endpoints — check all endpoints return correct status codes, add /health returning {status, uptime, open_positions_count, last_signal_ts}; verify /funding and /ws behave correctly under HTTPS
 - [x] feature: swipe-to-dismiss on signal cards — swipe left to archive/hide signal, with undo snackbar (5s)
-- [ ] feature: portfolio donut chart — breakdown of open positions by pair, shown on Positions tab header
+- [x] feature: portfolio donut chart — breakdown of open positions by pair, shown on Positions tab header
 
 ## IN PROGRESS
 (none)
@@ -84,6 +84,7 @@
 - 10:16 UTC | feature: channel performance stats — /stats/channel?name= endpoint on api_server.py; _ChannelCard onTap now opens _ChannelStatsSheet with stat chips (signals, wins/losses, win rate, avg P&L, total P&L, best/worst pair); "История сигналов" button navigates to ChannelSignalsScreen | done | build 61
 - 10:21 UTC | debug: audit api_server.py endpoints — added _start_time=time.time() at module level; updated /health to return {status, uptime, open_positions_count, last_signal_ts, vps, last_signal_seconds_ago, mexc_ok}; verified all endpoints use correct 200/404/500/401/403/409 codes via FastAPI HTTPException pattern | done | no-build
 - 10:25 UTC | feature: swipe-to-dismiss on signal cards — Dismissible(endToStart), _archivedIds Set, onDismissed adds id, undo SnackBar 5s with "Отмена" action restores; archive filter in _filteredSignals | done | build 62
+- 10:27 UTC | feature: portfolio donut chart — added fl_chart ^0.68.0, _PortfolioDonutChart widget (PieChart, 120x120, donut, touch to see label+%, color palette 8 colors, legend chips), inserted above positions list in PositionsTab; empty state if no positions | done | build 63
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
