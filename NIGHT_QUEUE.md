@@ -5,7 +5,7 @@
 - [x] debug: check _checkNewSignals() for edge cases — null pair/symbol, malformed JSON lines in events.jsonl, duplicate signal ids
 - [x] debug: verify WebSocket reconnect actually recovers after 60s network drop (check onDone/onError handler timing)
 - [x] debug: check _downloadAndInstall — what happens if storage permission denied mid-download
-- [ ] feature: pull-to-refresh on signals list (RefreshIndicator wrapper)
+- [x] feature: pull-to-refresh on signals list (RefreshIndicator wrapper)
 - [ ] feature: signal list sorting toggle (newest first / by pair / by P&L)
 - [ ] feature: long-press on signal card to copy pair to clipboard
 - [ ] feature: haptic feedback on new signal push notification
@@ -31,6 +31,7 @@
 - 23:30 UTC | debug: _checkNewSignals() edge cases — null guard on cast, empty id check, explicit toString on pair | done | build 41
 - 00:03 UTC | debug: WebSocket reconnect — added _pendingReconnect field, prevent duplicate reconnects, exponential backoff (5/10/30/60s), cancel on dispose | done | build 42
 - 05:35 UTC | debug: _downloadAndInstall storage/install permission — added REQUEST_INSTALL_PACKAGES check before download, moved cleanup to finally block | done | build 43
+- 06:05 UTC | feature: pull-to-refresh signals — RefreshIndicator on all states (list/empty/error), AlwaysScrollableScrollPhysics, hint text on empty/error | done | build 44
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
@@ -49,3 +50,6 @@
 - 3 research tasks (best practices survey, UX improvements, performance tips)
 
 ### Health: all good — no crashes, no regressions, APK at /home/glados/repos/trading-bot/trading_panel.apk
+
+---
+**Update 06:05 UTC** — Build 44: pull-to-refresh on all signal list states (list/empty/error), AlwaysScrollableScrollPhysics ensures gesture works everywhere.

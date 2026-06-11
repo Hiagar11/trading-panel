@@ -1060,41 +1060,76 @@ class _SignalsTabState extends State<SignalsTab> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: kGold));
     }
+    return RefreshIndicator(
+      color: kGold,
+      onRefresh: () async {
+        setState(() => _loading = false);
+        await _fetch();
+      },
+      child: _buildContent(),
+    );
+  }
+
+  Widget _buildContent() {
     if (_error != null) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.error_outline, color: kRed, size: 48),
-            const SizedBox(height: 8),
-            Text(_error!, style: const TextStyle(color: kDim)),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                setState(() => _loading = true);
-                _fetch();
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: kGold),
-              child: const Text('Повторить',
-                  style: TextStyle(color: Colors.black)),
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: 300,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, color: kRed, size: 48),
+                  const SizedBox(height: 8),
+                  Text(_error!, style: const TextStyle(color: kDim)),
+                  const SizedBox(height: 16),
+                  ElevatedButton(
+                    onPressed: () {
+                      setState(() => _loading = true);
+                      _fetch();
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: kGold),
+                    child: const Text('Повторить',
+                        style: TextStyle(color: Colors.black)),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('↓ потяните для обновления',
+                      style: TextStyle(color: kDim, fontSize: 12)),
+                ],
+              ),
             ),
-          ],
-        ),
+          ),
+        ],
       );
     }
     if (_signals.isEmpty) {
-      return const Center(
-        child: Text('Нет сигналов', style: TextStyle(color: kDim)),
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: const [
+          SizedBox(
+            height: 300,
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Нет сигналов', style: TextStyle(color: kDim)),
+                  SizedBox(height: 8),
+                  Text('↓ потяните для обновления',
+                      style: TextStyle(color: kDim, fontSize: 12)),
+                ],
+              ),
+            ),
+          ),
+        ],
       );
     }
-    return RefreshIndicator(
-      color: kGold,
-      onRefresh: _fetch,
-      child: ListView.builder(
-        padding: const EdgeInsets.all(8),
-        itemCount: _signals.length,
-        itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i]),
-      ),
+    return ListView.builder(
+      physics: const AlwaysScrollableScrollPhysics(),
+      padding: const EdgeInsets.all(8),
+      itemCount: _signals.length,
+      itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i]),
     );
   }
 }
