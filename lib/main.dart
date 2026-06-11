@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 42;
+const int kCurrentBuild = 43;
 const String kCurrentVersion = '1.5.7';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -485,6 +485,21 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _downloadAndInstall(String _ignored) async {
+    // Android 8+: REQUEST_INSTALL_PACKAGES must be granted at runtime
+    if (await Permission.requestInstallPackages.isDenied) {
+      final status = await Permission.requestInstallPackages.request();
+      if (!status.isGranted) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Разрешите установку из неизвестных источников в настройках'),
+          backgroundColor: kCard,
+          duration: Duration(seconds: 5),
+        ));
+        _updateInProgress = false;
+        return;
+      }
+    }
+
     // Сохранить context до async операций
     final scaffoldMsg = ScaffoldMessenger.of(context);
     final nav = Navigator.of(context);
@@ -537,18 +552,18 @@ class _HomeScreenState extends State<HomeScreen> {
         // Fallback: системное уведомление
         await _showInstallNotification(file.path);
       }
-      setState(() => _downloadProgress = 0.0);
-      _updateInProgress = false;
     } catch (e) {
       // Закрыть диалог если открыт
       try { nav.pop(); } catch (_) {}
-      setState(() => _downloadProgress = 0.0);
-      _updateInProgress = false;
       scaffoldMsg.showSnackBar(SnackBar(
         content: Text('Ошибка загрузки: $e'),
         backgroundColor: kCard,
         duration: const Duration(seconds: 5),
       ));
+    } finally {
+      // Всегда сбрасываем состояние, даже при исключении
+      setState(() => _downloadProgress = 0.0);
+      _updateInProgress = false;
     }
   }
 
