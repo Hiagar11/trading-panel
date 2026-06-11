@@ -9,11 +9,12 @@ import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 49;
+const int kCurrentBuild = 50;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -27,6 +28,144 @@ const kDim = Color(0xFF6B6B6B);
 
 // ─── Install channel ─────────────────────────────────────────────────────────
 const _installChannel = MethodChannel('com.example.trading_panel/install');
+
+// ─── WebSocket service ────────────────────────────────────────────────────────
+enum WsStatus { offline, connecting, online, stale }
+
+class WsSnapshot {
+  final WsStatus status;
+  final double balance;
+  final bool watcherAlive;
+  final int openPositions;
+  final int? newBuild;
+
+  const WsSnapshot({
+    this.status = WsStatus.offline,
+    this.balance = 0,
+    this.watcherAlive = false,
+    this.openPositions = 0,
+    this.newBuild,
+  });
+
+  WsSnapshot copyWith({
+    WsStatus? status,
+    double? balance,
+    bool? watcherAlive,
+    int? openPositions,
+    int? newBuild,
+  }) =>
+      WsSnapshot(
+        status: status ?? this.status,
+        balance: balance ?? this.balance,
+        watcherAlive: watcherAlive ?? this.watcherAlive,
+        openPositions: openPositions ?? this.openPositions,
+        newBuild: newBuild ?? this.newBuild,
+      );
+}
+
+class TradingWsService {
+  final _subject = BehaviorSubject<WsSnapshot>.seeded(const WsSnapshot());
+
+  Stream<WsSnapshot> get stream => _subject.stream;
+  WsSnapshot get value => _subject.value;
+
+  WebSocket? _ws;
+  int _reconnectAttempts = 0;
+  Future? _pendingReconnect;
+  Timer? _pingTimer;
+  Timer? _pongTimeoutTimer;
+  bool _updateTriggered = false;
+
+  void connect() {
+    _pendingReconnect = null;
+    _subject.add(_subject.value.copyWith(status: WsStatus.connecting));
+    _doConnect();
+  }
+
+  Future<void> _doConnect() async {
+    try {
+      _ws = await WebSocket.connect('ws://85.192.38.213:8766/ws');
+      _reconnectAttempts = 0;
+      _startPingTimer();
+      _ws!.listen(
+        (data) {
+          _resetPongTimer();
+          final msg = jsonDecode(data as String) as Map<String, dynamic>;
+          if (msg['type'] == 'pong') return;
+          final prev = _subject.value;
+          final positions = msg['positions'];
+          final posCount = positions is List ? positions.length : prev.openPositions;
+          final serverBuild = msg['build'] is int ? msg['build'] as int : null;
+          final triggerUpdate = !_updateTriggered &&
+              serverBuild != null &&
+              serverBuild > kCurrentBuild;
+          if (triggerUpdate) _updateTriggered = true;
+          _subject.add(WsSnapshot(
+            status: WsStatus.online,
+            balance: (msg['balance'] as num?)?.toDouble() ?? prev.balance,
+            watcherAlive: msg['watcher_alive'] == true,
+            openPositions: posCount,
+            newBuild: triggerUpdate ? serverBuild : null,
+          ));
+        },
+        onDone: _onDisconnect,
+        onError: (_) => _onDisconnect(),
+      );
+    } catch (_) {
+      _onDisconnect();
+    }
+  }
+
+  void _onDisconnect() {
+    _pingTimer?.cancel();
+    _pongTimeoutTimer?.cancel();
+    if (!_subject.isClosed) {
+      _subject.add(_subject.value.copyWith(status: WsStatus.offline));
+    }
+    _scheduleReconnect();
+  }
+
+  void _scheduleReconnect() {
+    if (_pendingReconnect != null) return;
+    _reconnectAttempts++;
+    final delaySecs =
+        [5, 10, 30, 60].elementAtOrNull(_reconnectAttempts - 1) ?? 60;
+    _pendingReconnect = Future.delayed(Duration(seconds: delaySecs), connect);
+  }
+
+  void _startPingTimer() {
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (_ws != null && _subject.value.status == WsStatus.online) {
+        try {
+          _ws!.add(jsonEncode({'type': 'ping'}));
+        } catch (_) {}
+        _pongTimeoutTimer?.cancel();
+        _pongTimeoutTimer = Timer(const Duration(seconds: 10), () {
+          if (!_subject.isClosed) {
+            _subject.add(_subject.value.copyWith(status: WsStatus.stale));
+          }
+        });
+      }
+    });
+  }
+
+  void _resetPongTimer() {
+    _pongTimeoutTimer?.cancel();
+    _pongTimeoutTimer = null;
+    if (_subject.value.status == WsStatus.stale && !_subject.isClosed) {
+      _subject.add(_subject.value.copyWith(status: WsStatus.online));
+    }
+  }
+
+  void dispose() {
+    _pingTimer?.cancel();
+    _pongTimeoutTimer?.cancel();
+    _pendingReconnect = null;
+    _ws?.close();
+    _subject.close();
+  }
+}
 
 // ─── Notifications ────────────────────────────────────────────────────────────
 final FlutterLocalNotificationsPlugin _notificationsPlugin =
@@ -296,18 +435,15 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _statusTimer;
   Timer? _checkUpdateTimer;
   Timer? _healthTimer;
-  WebSocket? _ws;
-  bool _wsConnected = false;
-  bool _wsStale = false;
+  WsStatus _wsStatus = WsStatus.offline;
   double _downloadProgress = 0.0;
   String _latestVersion = kCurrentVersion;
   bool _updateInProgress = false;
   bool _botHealthy = false;
   int _lastSignalSecondsAgo = -1;
-  Future? _pendingReconnect;
-  int _reconnectAttempts = 0;
-  Timer? _pingTimer;
-  Timer? _pongTimeoutTimer;
+
+  final _wsService = TradingWsService();
+  StreamSubscription<WsSnapshot>? _wsSub;
 
   @override
   void initState() {
@@ -319,7 +455,8 @@ class _HomeScreenState extends State<HomeScreen> {
     await SessionManager.load();
     await _requestPermissions();
     _fetchStatus();
-    _connectWs();
+    _wsService.connect();
+    _wsSub = _wsService.stream.listen(_onWsSnapshot);
     // Fallback polling every 30s in case WebSocket drops and reconnect is pending
     _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchStatus());
     // GitHub fallback update check (runs when VPS is unreachable)
@@ -329,100 +466,34 @@ class _HomeScreenState extends State<HomeScreen> {
     _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) => _fetchHealth());
   }
 
-  void _startPingTimer() {
-    _pingTimer?.cancel();
-    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
-      if (_ws != null && _wsConnected) {
-        try {
-          _ws!.add(jsonEncode({'type': 'ping'}));
-        } catch (_) {}
-        // Expect a response (any message) within 10s; if not, mark stale
-        _pongTimeoutTimer?.cancel();
-        _pongTimeoutTimer = Timer(const Duration(seconds: 10), () {
-          if (mounted) setState(() => _wsStale = true);
-        });
-      }
+  void _onWsSnapshot(WsSnapshot snap) {
+    if (!mounted) return;
+    setState(() {
+      _wsStatus = snap.status;
+      if (snap.balance > 0) _balance = snap.balance;
+      _watcherAlive = snap.watcherAlive;
+      _openPositions = snap.openPositions;
     });
-  }
-
-  void _resetPongTimer() {
-    _pongTimeoutTimer?.cancel();
-    _pongTimeoutTimer = null;
-    if (_wsStale && mounted) setState(() => _wsStale = false);
-  }
-
-  void _connectWs() async {
-    _pendingReconnect = null;
-    try {
-      _ws = await WebSocket.connect('ws://85.192.38.213:8766/ws');
-      _reconnectAttempts = 0;
-      _startPingTimer();
-      _ws!.listen(
-        (data) {
-          _resetPongTimer();
-          final msg = jsonDecode(data as String) as Map<String, dynamic>;
-          if (msg['type'] == 'pong') return; // server explicit pong — nothing to update
-          if (mounted) {
-            setState(() {
-              _wsConnected = true;
-              _balance = (msg['balance'] as num?)?.toDouble() ?? _balance;
-              _watcherAlive = msg['watcher_alive'] == true;
-              final positions = msg['positions'];
-              if (positions is List) {
-                _openPositions = positions.length;
-              }
-            });
-            if (msg['build'] != null) {
-              final serverBuild = msg['build'] as int;
-              if (serverBuild > kCurrentBuild && !_updateInProgress) {
-                _updateInProgress = true;
-                _notificationsPlugin.show(
-                  99,
-                  'Доступно обновление',
-                  'Версия $serverBuild готова к установке. Нажми чтобы загрузить.',
-                  const NotificationDetails(
-                    android: AndroidNotificationDetails(
-                      'update_channel',
-                      'Обновления',
-                      channelDescription: 'Уведомления об обновлениях приложения',
-                      importance: Importance.max,
-                      priority: Priority.high,
-                      icon: '@mipmap/ic_launcher',
-                    ),
-                  ),
-                  payload: 'do_update',
-                );
-                _downloadAndInstall('');
-              }
-            }
-          }
-        },
-        onDone: () {
-          _pingTimer?.cancel();
-          _pongTimeoutTimer?.cancel();
-          if (mounted) setState(() { _wsConnected = false; _wsStale = false; });
-          _scheduleReconnect();
-        },
-        onError: (_) {
-          _pingTimer?.cancel();
-          _pongTimeoutTimer?.cancel();
-          if (mounted) setState(() { _wsConnected = false; _wsStale = false; });
-          _scheduleReconnect();
-        },
+    if (snap.newBuild != null && !_updateInProgress) {
+      _updateInProgress = true;
+      _notificationsPlugin.show(
+        99,
+        'Доступно обновление',
+        'Версия ${snap.newBuild} готова к установке. Нажми чтобы загрузить.',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'update_channel',
+            'Обновления',
+            channelDescription: 'Уведомления об обновлениях приложения',
+            importance: Importance.max,
+            priority: Priority.high,
+            icon: '@mipmap/ic_launcher',
+          ),
+        ),
+        payload: 'do_update',
       );
-    } catch (_) {
-      _pingTimer?.cancel();
-      _pongTimeoutTimer?.cancel();
-      if (mounted) setState(() { _wsConnected = false; _wsStale = false; });
-      _scheduleReconnect();
+      _downloadAndInstall('');
     }
-  }
-
-  void _scheduleReconnect() {
-    if (_pendingReconnect != null) return;
-    _reconnectAttempts++;
-    final delaySecs = [5, 10, 30, 60].elementAtOrNull(_reconnectAttempts - 1) ?? 60;
-    _pendingReconnect = Future.delayed(Duration(seconds: delaySecs), _connectWs);
   }
 
   Future<void> _requestPermissions() async {
@@ -656,10 +727,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _statusTimer?.cancel();
     _checkUpdateTimer?.cancel();
     _healthTimer?.cancel();
-    _pingTimer?.cancel();
-    _pongTimeoutTimer?.cancel();
-    _ws?.close();
-    _pendingReconnect = null;
+    _wsSub?.cancel();
+    _wsService.dispose();
     super.dispose();
   }
 
@@ -679,20 +748,26 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _wsConnected
-                        ? (_wsStale ? Colors.amber : Colors.green)
-                        : Colors.red,
+                    color: _wsStatus == WsStatus.online
+                        ? Colors.green
+                        : _wsStatus == WsStatus.stale
+                            ? Colors.amber
+                            : Colors.red,
                   ),
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  _wsConnected
-                      ? (_wsStale ? 'STALE' : 'ONLINE')
-                      : 'OFFLINE',
+                  _wsStatus == WsStatus.online
+                      ? 'ONLINE'
+                      : _wsStatus == WsStatus.stale
+                          ? 'STALE'
+                          : 'OFFLINE',
                   style: TextStyle(
-                    color: _wsConnected
-                        ? (_wsStale ? Colors.amber : Colors.green)
-                        : Colors.red,
+                    color: _wsStatus == WsStatus.online
+                        ? Colors.green
+                        : _wsStatus == WsStatus.stale
+                            ? Colors.amber
+                            : Colors.red,
                     fontSize: 11,
                   ),
                 ),

@@ -11,7 +11,7 @@
 - [x] feature: haptic feedback on new signal push notification
 - [x] feature: show timestamp "2h ago" style on each signal card (relative time, refresh every minute)
 - [x] research: COMPREHENSIVE BEST PRACTICES — web search across 3 angles: (1) flutter websocket reconnect backoff (2) crypto mobile UX best practices (3) flutter memory leak prevention. Synthesized 10 actionable findings below.
-- [ ] feature: implement ping/pong heartbeat on WebSocket to detect and warn on stale connections (prevent zombie connections)
+- [x] feature: implement ping/pong heartbeat on WebSocket to detect and warn on stale connections (prevent zombie connections)
 - [ ] feature: use BehaviorSubject (rxdart) to decouple WebSocket connection logic from UI state (cleaner reactive architecture)
 - [ ] debug: verify WSS (encrypted WebSocket) enabled for all connections; audit protocol security in production
 - [ ] feature: add visual "Reconnecting… (attempt N)" status pill on connection stream (user transparency)
@@ -47,6 +47,7 @@
 - 07:37 UTC | feature: haptic feedback on new signal notification — HapticFeedback.heavyImpact() in showSignalNotification() | done | build 47
 - 07:55 UTC | feature: relative timestamps on signal cards — _relativeTime() helper (s/m/h/d ago), _SignalCard→StatefulWidget with 1-min Timer, gold color + raw ts secondary | done | build 48
 - 08:00 UTC | research: COMPREHENSIVE BEST PRACTICES — web search 3 angles (network resilience, crypto mobile UX, memory leak prevention); synthesized 10 actionable findings into TODO | done | no-build
+- 08:07 UTC | feature: ping/pong heartbeat — _startPingTimer() every 20s, _resetPongTimer() on any message, 10s pong timeout sets _wsStale, STALE status pill (amber) in AppBar | done | build 49
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
