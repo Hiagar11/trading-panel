@@ -19,8 +19,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 72;
-const String kCurrentVersion = '1.6.2';
+const int kCurrentBuild = 73;
+const String kCurrentVersion = '1.6.3';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -2247,6 +2247,10 @@ class _SignalCardState extends State<_SignalCard> {
         : isShort
             ? kRed
             : kDim;
+    final pnlRaw = s['pnl'] ?? s['profit'] ?? s['profit_pct'];
+    final pnlVal = pnlRaw is num
+        ? pnlRaw.toDouble()
+        : double.tryParse(pnlRaw?.toString() ?? '');
 
     return GestureDetector(
       onTap: () => _showSignalDetail(context, s),
@@ -2309,21 +2313,22 @@ class _SignalCardState extends State<_SignalCard> {
                     _InfoChip('TP', tp.toString(), kGreen),
                 ],
               ),
+              if (pnlVal != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'P&L: ${pnlVal >= 0 ? '+' : ''}\$${pnlVal.toStringAsFixed(2)}',
+                  style: TextStyle(
+                    color: pnlVal > 0 ? kGreen : pnlVal < 0 ? kRed : kDim,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
               if (ts != null) ...[
                 const SizedBox(height: 4),
-                Row(
-                  children: [
-                    Text(relTime,
-                        style: const TextStyle(
-                            color: kGold, fontSize: 11, fontWeight: FontWeight.w500)),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      child: Text(ts.toString(),
-                          style: const TextStyle(color: kDim, fontSize: 10),
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                  ],
-                ),
+                Text(relTime,
+                    style: const TextStyle(
+                        color: kGold, fontSize: 11, fontWeight: FontWeight.w500)),
               ],
             ],
           ),
@@ -3267,6 +3272,8 @@ class _ChannelsTabState extends State<ChannelsTab> {
   bool _isOwner = false;
   String? _lastSignalId;
   Timer? _signalTimer;
+  double? _dailyPnl;
+  int? _dailyTradeCount;
 
   @override
   void initState() {
@@ -3320,6 +3327,14 @@ class _ChannelsTabState extends State<ChannelsTab> {
       final me = await apiGet('/users/me', auth: true);
       if (mounted) {
         setState(() => _isOwner = me?['is_owner'] == true);
+      }
+      final stats = await apiGet('/stats/daily', auth: true);
+      if (mounted && stats != null) {
+        setState(() {
+          _dailyPnl = (stats['pnl'] as num?)?.toDouble() ??
+              (stats['daily_pnl'] as num?)?.toDouble();
+          _dailyTradeCount = (stats['trade_count'] as num?)?.toInt();
+        });
       }
     }
     if (mounted) {
