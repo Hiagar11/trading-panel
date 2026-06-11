@@ -19,7 +19,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 70;
+const int kCurrentBuild = 71;
 const String kCurrentVersion = '1.6.2';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -41,6 +41,12 @@ Future<void> _initSecureClient() async {
     final secCtx = SecurityContext(withTrustedRoots: true);
     secCtx.setTrustedCertificatesBytes(certData.buffer.asUint8List());
     _secureDartIoClient = HttpClient(context: secCtx);
+    _secureDartIoClient!.badCertificateCallback =
+        (X509Certificate cert, String host, int port) {
+      // Accept our pinned self-signed cert regardless of hostname
+      return cert.sha1.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':').toUpperCase() ==
+          '06:52:72:91:82:33:BE:89:D4:FB:3C:F6:50:5D:2A:5D:01:76:0C:AB';
+    };
     _secureHttpClient = IOClient(_secureDartIoClient!);
   } catch (e) {
     debugPrint('Secure client init failed, falling back to default: $e');
