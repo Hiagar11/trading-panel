@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 41;
+const int kCurrentBuild = 42;
 const String kCurrentVersion = '1.5.7';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -302,6 +302,8 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _updateInProgress = false;
   bool _botHealthy = false;
   int _lastSignalSecondsAgo = -1;
+  Future? _pendingReconnect;
+  int _reconnectAttempts = 0;
 
   @override
   void initState() {
@@ -324,8 +326,10 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _connectWs() async {
+    _pendingReconnect = null;
     try {
       _ws = await WebSocket.connect('ws://85.192.38.213:8766/ws');
+      _reconnectAttempts = 0;
       _ws!.listen(
         (data) {
           final msg = jsonDecode(data as String) as Map<String, dynamic>;
@@ -366,17 +370,24 @@ class _HomeScreenState extends State<HomeScreen> {
         },
         onDone: () {
           if (mounted) setState(() => _wsConnected = false);
-          Future.delayed(const Duration(seconds: 5), _connectWs);
+          _scheduleReconnect();
         },
         onError: (_) {
           if (mounted) setState(() => _wsConnected = false);
-          Future.delayed(const Duration(seconds: 5), _connectWs);
+          _scheduleReconnect();
         },
       );
     } catch (_) {
       if (mounted) setState(() => _wsConnected = false);
-      Future.delayed(const Duration(seconds: 5), _connectWs);
+      _scheduleReconnect();
     }
+  }
+
+  void _scheduleReconnect() {
+    if (_pendingReconnect != null) return;
+    _reconnectAttempts++;
+    final delaySecs = [5, 10, 30, 60].elementAtOrNull(_reconnectAttempts - 1) ?? 60;
+    _pendingReconnect = Future.delayed(Duration(seconds: delaySecs), _connectWs);
   }
 
   Future<void> _requestPermissions() async {
@@ -596,6 +607,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkUpdateTimer?.cancel();
     _healthTimer?.cancel();
     _ws?.close();
+    _pendingReconnect = null;
     super.dispose();
   }
 

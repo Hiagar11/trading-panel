@@ -2,7 +2,7 @@
 # Updated by each cycle agent. Format: - [ ] task | - [x] DONE | - [~] SKIP
 
 ## TODO
-- [ ] debug: check _checkNewSignals() for edge cases — null pair/symbol, malformed JSON lines in events.jsonl, duplicate signal ids
+- [x] debug: check _checkNewSignals() for edge cases — null pair/symbol, malformed JSON lines in events.jsonl, duplicate signal ids
 - [ ] debug: verify WebSocket reconnect actually recovers after 60s network drop (check onDone/onError handler timing)
 - [ ] debug: check _downloadAndInstall — what happens if storage permission denied mid-download
 - [ ] feature: pull-to-refresh on signals list (RefreshIndicator wrapper)
@@ -27,3 +27,4 @@
 
 ## NIGHT LOG
 (each cycle appends one line: timestamp | action | result)
+- 23:30 UTC | debug: _checkNewSignals() edge cases — null guard on cast, empty id check, explicit toString on pair | done | build 41
