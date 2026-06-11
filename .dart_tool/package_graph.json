@@ -5,7 +5,7 @@
   "packages": [
     {
       "name": "trading_panel",
-      "version": "1.6.3+73",
+      "version": "1.6.4+74",
       "dependencies": [
         "firebase_core",
         "firebase_messaging",

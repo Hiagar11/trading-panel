@@ -19,8 +19,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 73;
-const String kCurrentVersion = '1.6.3';
+const int kCurrentBuild = 74;
+const String kCurrentVersion = '1.6.4';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -323,10 +323,13 @@ void _onNotificationTap(NotificationResponse response) async {
     // Update notification tapped — download is already in progress; nothing to do.
     return;
   }
-  try {
-    await _installChannel.invokeMethod('installApk', {'path': payload});
-  } catch (e) {
-    debugPrint('Install error: $e');
+  // Handle both tap on notification body and 'install_now' action button
+  if (response.actionId == 'install_now' || response.actionId == null) {
+    try {
+      await _installChannel.invokeMethod('installApk', {'path': payload});
+    } catch (e) {
+      debugPrint('Install error: $e');
+    }
   }
 }
 
@@ -819,7 +822,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _showInstallNotification(String apkPath) async {
-    const androidDetails = AndroidNotificationDetails(
+    final androidDetails = AndroidNotificationDetails(
       'update_channel',
       'Обновления',
       channelDescription: 'Уведомления об обновлениях приложения',
@@ -827,12 +830,19 @@ class _HomeScreenState extends State<HomeScreen> {
       priority: Priority.high,
       ongoing: false,
       autoCancel: true,
+      actions: const <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'install_now',
+          'Установить',
+          showsUserInterface: true,
+        ),
+      ],
     );
-    const details = NotificationDetails(android: androidDetails);
+    final details = NotificationDetails(android: androidDetails);
     await _notificationsPlugin.show(
       999,
       'Обновление готово',
-      'Нажмите для установки Trading Panel v$_latestVersion',
+      'Trading Panel v$_latestVersion готова к установке',
       details,
       payload: apkPath,
     );
@@ -2204,7 +2214,8 @@ String _relativeTime(dynamic ts) {
 
 class _SignalCard extends StatefulWidget {
   final dynamic signal;
-  const _SignalCard({required this.signal});
+  final bool showPnlAlways;
+  const _SignalCard({required this.signal, this.showPnlAlways = false});
 
   @override
   State<_SignalCard> createState() => _SignalCardState();
@@ -2231,7 +2242,8 @@ class _SignalCardState extends State<_SignalCard> {
   Widget build(BuildContext context) {
     final Map<String, dynamic> s =
         widget.signal is Map<String, dynamic> ? widget.signal : {};
-    final pair = s['pair'] ?? s['symbol'] ?? s['channel'] ?? '—';
+    final pairRaw = (s['pair'] ?? s['symbol'] ?? s['channel'] ?? '—').toString();
+    final pair = pairRaw.replaceAll(RegExp(r'\s*\(\d+\)\s*'), '').trim();
     final direction = (s['direction'] ?? s['side'] ?? s['type'] ?? '')
         .toString()
         .toUpperCase();
@@ -2273,7 +2285,7 @@ class _SignalCardState extends State<_SignalCard> {
             children: [
               Row(
                 children: [
-                  Text(pair.toString(),
+                  Text(pair,
                       style: const TextStyle(
                           color: Colors.white,
                           fontWeight: FontWeight.bold,
@@ -2313,12 +2325,16 @@ class _SignalCardState extends State<_SignalCard> {
                     _InfoChip('TP', tp.toString(), kGreen),
                 ],
               ),
-              if (pnlVal != null) ...[
+              if (pnlVal != null || widget.showPnlAlways) ...[
                 const SizedBox(height: 4),
                 Text(
-                  'P&L: ${pnlVal >= 0 ? '+' : ''}\$${pnlVal.toStringAsFixed(2)}',
+                  pnlVal != null
+                      ? 'P&L: ${pnlVal >= 0 ? '+' : ''}\$${pnlVal.toStringAsFixed(2)}'
+                      : 'P&L: —',
                   style: TextStyle(
-                    color: pnlVal > 0 ? kGreen : pnlVal < 0 ? kRed : kDim,
+                    color: pnlVal != null
+                        ? (pnlVal > 0 ? kGreen : pnlVal < 0 ? kRed : kDim)
+                        : kDim,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -3487,6 +3503,7 @@ class _ChannelsTabState extends State<ChannelsTab> {
                       itemBuilder: (ctx, i) => _ChannelCard(
                         channel: _channels[i],
                         isOwner: _isOwner,
+                        dailyPnl: _dailyPnl,
                         onDelete: () =>
                             _deleteChannel(_channels[i]['id'].toString()),
                         onToggle: () => _toggleChannel(
@@ -3517,6 +3534,7 @@ class _ChannelCard extends StatelessWidget {
   final VoidCallback onDelete;
   final VoidCallback onToggle;
   final VoidCallback onAnalyze;
+  final double? dailyPnl;
 
   const _ChannelCard({
     required this.channel,
@@ -3524,6 +3542,7 @@ class _ChannelCard extends StatelessWidget {
     required this.onDelete,
     required this.onToggle,
     required this.onAnalyze,
+    this.dailyPnl,
   });
 
   @override
@@ -3532,7 +3551,7 @@ class _ChannelCard extends StatelessWidget {
         channel is Map<String, dynamic> ? channel : {};
     final name = c['name'] ?? c['title'] ?? '—';
     final active = c['active'] == true;
-    final pnl = (c['daily_pnl'] as num?)?.toDouble();
+    final pnl = (c['daily_pnl'] as num?)?.toDouble() ?? dailyPnl;
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
@@ -3885,7 +3904,7 @@ class _ChannelSignalsScreenState extends State<ChannelSignalsScreen> {
               : ListView.builder(
                   padding: const EdgeInsets.all(8),
                   itemCount: _signals.length,
-                  itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i]),
+                  itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i], showPnlAlways: true),
                 ),
     );
   }
