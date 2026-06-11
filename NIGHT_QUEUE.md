@@ -9,8 +9,18 @@
 - [x] feature: signal list sorting toggle (newest first / by pair / by P&L)
 - [x] feature: long-press on signal card to copy pair to clipboard
 - [x] feature: haptic feedback on new signal push notification
-- [ ] feature: show timestamp "2h ago" style on each signal card (relative time, refresh every minute)
-- [ ] research: COMPREHENSIVE BEST PRACTICES — search web across 3 angles: (1) "flutter trading app network resilience best practices 2025" — reconnect strategies, offline queue, retry backoff; (2) "crypto trading mobile UX patterns 2025" — signal display, P&L visualization, order flow UX, dark theme conventions; (3) "flutter android performance optimization memory leaks 2025" — list virtualization, image caching, timer/stream disposal, jank prevention. Synthesize top 10 actionable findings and add as feature/debug tasks below.
+- [x] feature: show timestamp "2h ago" style on each signal card (relative time, refresh every minute)
+- [x] research: COMPREHENSIVE BEST PRACTICES — web search across 3 angles: (1) flutter websocket reconnect backoff (2) crypto mobile UX best practices (3) flutter memory leak prevention. Synthesized 10 actionable findings below.
+- [ ] feature: implement ping/pong heartbeat on WebSocket to detect and warn on stale connections (prevent zombie connections)
+- [ ] feature: use BehaviorSubject (rxdart) to decouple WebSocket connection logic from UI state (cleaner reactive architecture)
+- [ ] debug: verify WSS (encrypted WebSocket) enabled for all connections; audit protocol security in production
+- [ ] feature: add visual "Reconnecting… (attempt N)" status pill on connection stream (user transparency)
+- [ ] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
+- [ ] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
+- [ ] debug: audit all timers and StreamSubscriptions for proper disposal in dispose() method (prevent memory bloat)
+- [ ] feature: add memory profiling stats to dev menu — show current heap usage, GC pressure (--profile mode support)
+- [ ] debug: ensure all transaction/order status messages display progress indicators (Material ProgressIndicator or Lottie)
+- [ ] feature: add dark mode customization panel — allow users to adjust accent colors, signal list contrast, grid/card view toggle
 - [ ] research: search web for "flutter crypto trading app ux improvements 2025" and add new ideas here
 - [ ] research: search web for "flutter android performance optimization tips" and add relevant ones
 
@@ -35,6 +45,8 @@
 - 06:37 UTC | feature: signal list sorting toggle — _SignalSort enum (newest/pair/pnl), chip bar above list, stateful sort in _SignalsTabState | done | build 45
 - 07:07 UTC | feature: long-press signal card copies pair to clipboard — GestureDetector + Clipboard.setData + SnackBar confirmation; fixed stale kCurrentBuild (43→46) | done | build 46
 - 07:37 UTC | feature: haptic feedback on new signal notification — HapticFeedback.heavyImpact() in showSignalNotification() | done | build 47
+- 07:55 UTC | feature: relative timestamps on signal cards — _relativeTime() helper (s/m/h/d ago), _SignalCard→StatefulWidget with 1-min Timer, gold color + raw ts secondary | done | build 48
+- 08:00 UTC | research: COMPREHENSIVE BEST PRACTICES — web search 3 angles (network resilience, crypto mobile UX, memory leak prevention); synthesized 10 actionable findings into TODO | done | no-build
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43

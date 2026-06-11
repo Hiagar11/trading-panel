@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 48;
+const int kCurrentBuild = 49;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -298,6 +298,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Timer? _healthTimer;
   WebSocket? _ws;
   bool _wsConnected = false;
+  bool _wsStale = false;
   double _downloadProgress = 0.0;
   String _latestVersion = kCurrentVersion;
   bool _updateInProgress = false;
@@ -305,6 +306,8 @@ class _HomeScreenState extends State<HomeScreen> {
   int _lastSignalSecondsAgo = -1;
   Future? _pendingReconnect;
   int _reconnectAttempts = 0;
+  Timer? _pingTimer;
+  Timer? _pongTimeoutTimer;
 
   @override
   void initState() {
@@ -326,14 +329,39 @@ class _HomeScreenState extends State<HomeScreen> {
     _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) => _fetchHealth());
   }
 
+  void _startPingTimer() {
+    _pingTimer?.cancel();
+    _pingTimer = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (_ws != null && _wsConnected) {
+        try {
+          _ws!.add(jsonEncode({'type': 'ping'}));
+        } catch (_) {}
+        // Expect a response (any message) within 10s; if not, mark stale
+        _pongTimeoutTimer?.cancel();
+        _pongTimeoutTimer = Timer(const Duration(seconds: 10), () {
+          if (mounted) setState(() => _wsStale = true);
+        });
+      }
+    });
+  }
+
+  void _resetPongTimer() {
+    _pongTimeoutTimer?.cancel();
+    _pongTimeoutTimer = null;
+    if (_wsStale && mounted) setState(() => _wsStale = false);
+  }
+
   void _connectWs() async {
     _pendingReconnect = null;
     try {
       _ws = await WebSocket.connect('ws://85.192.38.213:8766/ws');
       _reconnectAttempts = 0;
+      _startPingTimer();
       _ws!.listen(
         (data) {
+          _resetPongTimer();
           final msg = jsonDecode(data as String) as Map<String, dynamic>;
+          if (msg['type'] == 'pong') return; // server explicit pong — nothing to update
           if (mounted) {
             setState(() {
               _wsConnected = true;
@@ -370,16 +398,22 @@ class _HomeScreenState extends State<HomeScreen> {
           }
         },
         onDone: () {
-          if (mounted) setState(() => _wsConnected = false);
+          _pingTimer?.cancel();
+          _pongTimeoutTimer?.cancel();
+          if (mounted) setState(() { _wsConnected = false; _wsStale = false; });
           _scheduleReconnect();
         },
         onError: (_) {
-          if (mounted) setState(() => _wsConnected = false);
+          _pingTimer?.cancel();
+          _pongTimeoutTimer?.cancel();
+          if (mounted) setState(() { _wsConnected = false; _wsStale = false; });
           _scheduleReconnect();
         },
       );
     } catch (_) {
-      if (mounted) setState(() => _wsConnected = false);
+      _pingTimer?.cancel();
+      _pongTimeoutTimer?.cancel();
+      if (mounted) setState(() { _wsConnected = false; _wsStale = false; });
       _scheduleReconnect();
     }
   }
@@ -622,6 +656,8 @@ class _HomeScreenState extends State<HomeScreen> {
     _statusTimer?.cancel();
     _checkUpdateTimer?.cancel();
     _healthTimer?.cancel();
+    _pingTimer?.cancel();
+    _pongTimeoutTimer?.cancel();
     _ws?.close();
     _pendingReconnect = null;
     super.dispose();
@@ -643,14 +679,20 @@ class _HomeScreenState extends State<HomeScreen> {
                   height: 8,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: _wsConnected ? Colors.green : Colors.red,
+                    color: _wsConnected
+                        ? (_wsStale ? Colors.amber : Colors.green)
+                        : Colors.red,
                   ),
                 ),
                 const SizedBox(width: 4),
                 Text(
-                  _wsConnected ? 'ONLINE' : 'OFFLINE',
+                  _wsConnected
+                      ? (_wsStale ? 'STALE' : 'ONLINE')
+                      : 'OFFLINE',
                   style: TextStyle(
-                    color: _wsConnected ? Colors.green : Colors.red,
+                    color: _wsConnected
+                        ? (_wsStale ? Colors.amber : Colors.green)
+                        : Colors.red,
                     fontSize: 11,
                   ),
                 ),
