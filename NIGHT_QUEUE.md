@@ -18,7 +18,7 @@
 - [x] infra: setup self-signed or Let's Encrypt SSL certs for trading-bot API server (CRITICAL: all connections currently unencrypted)
 - [x] infra: configure api_server.py to serve HTTPS + WSS with SSL certs (use uvicorn ssl_keyfile/ssl_certfile)
 - [x] feature: update trading-panel kApiBase to use https:// and wss:// instead of http:// and ws://
-- [ ] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
+- [x] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
 - [ ] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
 - [x] debug: audit all timers and StreamSubscriptions for proper disposal in dispose() method (prevent memory bloat)
 - [ ] feature: add memory profiling stats to dev menu — show current heap usage, GC pressure (--profile mode support)
@@ -58,6 +58,7 @@
 - 08:34 UTC | infra: setup SSL certs — generated self-signed RSA-4096 cert (key.pem + cert.pem) in /home/glados/repos/trading-bot/, valid 365d, CN=trading-bot | done | no-build
 - 08:35 UTC | infra: configure api_server.py HTTPS+WSS — added ssl_keyfile/ssl_certfile params to uvicorn.run() call, WebSocket endpoint auto-upgrades to WSS | done | no-build
 - 08:38 UTC | feature: update kApiBase to https/wss — changed kApiBase http://→https://, WebSocket ws://→wss://, download URL http://→https:// | done | build 51
+- 08:47 UTC | feature: tiered UI mode toggle (Basic/Advanced) — _uiMode ValueNotifier+SharedPreferences, BASIC/ADV chip in AppBar; Basic hides watcher controls, channel owner actions, position close button | done | build 52
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43

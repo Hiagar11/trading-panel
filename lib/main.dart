@@ -14,7 +14,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 52;
+const int kCurrentBuild = 53;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -1173,6 +1173,9 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
 
 // ─── Signals Tab ──────────────────────────────────────────────────────────────
 enum _SignalSort { newest, pair, pnl }
+enum _FilterDir { all, longBuy, shortSell }
+enum _FilterStatus { all, tp, sl, open }
+enum _FilterTime { all, h1, h24, d7 }
 
 class SignalsTab extends StatefulWidget {
   final void Function(Map<String, dynamic>) onNewSignal;
@@ -1189,12 +1192,18 @@ class _SignalsTabState extends State<SignalsTab> {
   Timer? _timer;
   String? _lastId;
   _SignalSort _sortMode = _SignalSort.newest;
+  final TextEditingController _searchCtrl = TextEditingController();
+  bool _showFilters = false;
+  _FilterDir _filterDir = _FilterDir.all;
+  _FilterStatus _filterStatus = _FilterStatus.all;
+  _FilterTime _filterTime = _FilterTime.all;
 
   @override
   void initState() {
     super.initState();
     _fetch();
     _timer = Timer.periodic(const Duration(seconds: 15), (_) => _fetch());
+    _searchCtrl.addListener(() { if (mounted) setState(() {}); });
   }
 
   Future<void> _fetch() async {
@@ -1225,8 +1234,14 @@ class _SignalsTabState extends State<SignalsTab> {
   @override
   void dispose() {
     _timer?.cancel();
+    _searchCtrl.dispose();
     super.dispose();
   }
+
+  bool get _hasActiveFilter =>
+      _filterDir != _FilterDir.all ||
+      _filterStatus != _FilterStatus.all ||
+      _filterTime != _FilterTime.all;
 
   List<dynamic> get _sortedSignals {
     final list = List<dynamic>.from(_signals);
@@ -1253,6 +1268,56 @@ class _SignalsTabState extends State<SignalsTab> {
         });
     }
     return list;
+  }
+
+  List<dynamic> get _filteredSignals {
+    final sorted = _sortedSignals;
+    final query = _searchCtrl.text.trim().toLowerCase();
+    final now = DateTime.now().toUtc();
+    return sorted.where((raw) {
+      final s = raw is Map<String, dynamic> ? raw : <String, dynamic>{};
+      if (query.isNotEmpty) {
+        final pair = (s['pair'] ?? s['symbol'] ?? '').toString().toLowerCase();
+        if (!pair.contains(query)) return false;
+      }
+      if (_filterDir != _FilterDir.all) {
+        final dir = (s['direction'] ?? s['side'] ?? s['type'] ?? '').toString().toUpperCase();
+        final isLong = dir.contains('LONG') || dir.contains('BUY');
+        final isShort = dir.contains('SHORT') || dir.contains('SELL');
+        if (_filterDir == _FilterDir.longBuy && !isLong) return false;
+        if (_filterDir == _FilterDir.shortSell && !isShort) return false;
+      }
+      if (_filterStatus != _FilterStatus.all) {
+        final outcome = (s['outcome'] ?? s['status'] ?? s['result'] ?? '').toString().toLowerCase();
+        final isTp = outcome.contains('tp') || outcome == 'win' || outcome == 'profit';
+        final isSl = outcome.contains('sl') || outcome == 'loss' || outcome == 'stop';
+        if (_filterStatus == _FilterStatus.tp && !isTp) return false;
+        if (_filterStatus == _FilterStatus.sl && !isSl) return false;
+        if (_filterStatus == _FilterStatus.open && (isTp || isSl)) return false;
+      }
+      if (_filterTime != _FilterTime.all) {
+        final ts = s['timestamp'] ?? s['created_at'] ?? s['time'];
+        if (ts == null) return false;
+        DateTime? dt;
+        try {
+          final rawTs = ts.toString();
+          dt = DateTime.tryParse(rawTs);
+          if (dt == null) {
+            final epoch = double.tryParse(rawTs);
+            if (epoch != null) {
+              dt = DateTime.fromMillisecondsSinceEpoch(
+                  epoch > 1e10 ? epoch.toInt() : (epoch * 1000).toInt());
+            }
+          }
+        } catch (_) {}
+        if (dt == null) return false;
+        final age = now.difference(dt.toUtc());
+        if (_filterTime == _FilterTime.h1 && age.inMinutes >= 60) return false;
+        if (_filterTime == _FilterTime.h24 && age.inHours >= 24) return false;
+        if (_filterTime == _FilterTime.d7 && age.inDays >= 7) return false;
+      }
+      return true;
+    }).toList();
   }
 
   Widget _buildSortChip(String label, _SignalSort mode, IconData icon) {
@@ -1295,6 +1360,151 @@ class _SignalsTabState extends State<SignalsTab> {
           _buildSortChip('P&L', _SignalSort.pnl, Icons.trending_up),
         ],
       ),
+    );
+  }
+
+  Widget _buildFChip<T>(String label, T val, T current, Color activeColor, void Function(T) onTap) {
+    final active = val == current;
+    return GestureDetector(
+      onTap: () => setState(() => onTap(val)),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+        margin: const EdgeInsets.only(right: 5),
+        decoration: BoxDecoration(
+          color: active ? activeColor.withOpacity(0.18) : Colors.transparent,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: active ? activeColor : kDim, width: 0.5),
+        ),
+        child: Text(label,
+            style: TextStyle(
+                color: active ? activeColor : kDim,
+                fontSize: 11,
+                fontWeight: active ? FontWeight.bold : FontWeight.normal)),
+      ),
+    );
+  }
+
+  Widget _buildFilterPanel() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 6),
+        Row(children: [
+          const Text('Напр:', style: TextStyle(color: kDim, fontSize: 11)),
+          const SizedBox(width: 6),
+          _buildFChip('Все', _FilterDir.all, _filterDir, kGold, (v) => _filterDir = v),
+          _buildFChip('LONG', _FilterDir.longBuy, _filterDir, kGreen, (v) => _filterDir = v),
+          _buildFChip('SHORT', _FilterDir.shortSell, _filterDir, kRed, (v) => _filterDir = v),
+        ]),
+        const SizedBox(height: 5),
+        Row(children: [
+          const Text('Статус:', style: TextStyle(color: kDim, fontSize: 11)),
+          const SizedBox(width: 6),
+          _buildFChip('Все', _FilterStatus.all, _filterStatus, kGold, (v) => _filterStatus = v),
+          _buildFChip('TP', _FilterStatus.tp, _filterStatus, kGreen, (v) => _filterStatus = v),
+          _buildFChip('SL', _FilterStatus.sl, _filterStatus, kRed, (v) => _filterStatus = v),
+          _buildFChip('Откр', _FilterStatus.open, _filterStatus, kDim, (v) => _filterStatus = v),
+        ]),
+        const SizedBox(height: 5),
+        Row(children: [
+          const Text('Период:', style: TextStyle(color: kDim, fontSize: 11)),
+          const SizedBox(width: 6),
+          _buildFChip('Все', _FilterTime.all, _filterTime, kGold, (v) => _filterTime = v),
+          _buildFChip('1ч', _FilterTime.h1, _filterTime, kGold, (v) => _filterTime = v),
+          _buildFChip('24ч', _FilterTime.h24, _filterTime, kGold, (v) => _filterTime = v),
+          _buildFChip('7д', _FilterTime.d7, _filterTime, kGold, (v) => _filterTime = v),
+        ]),
+        const SizedBox(height: 6),
+      ],
+    );
+  }
+
+  Widget _buildSearchBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Container(
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF101010),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: kDim, width: 0.5),
+                  ),
+                  child: TextField(
+                    controller: _searchCtrl,
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    decoration: InputDecoration(
+                      hintText: 'Поиск по паре…',
+                      hintStyle: const TextStyle(color: kDim, fontSize: 13),
+                      prefixIcon: const Icon(Icons.search, color: kDim, size: 18),
+                      suffixIcon: _searchCtrl.text.isNotEmpty
+                          ? GestureDetector(
+                              onTap: () => setState(() => _searchCtrl.clear()),
+                              child: const Icon(Icons.close, color: kDim, size: 16),
+                            )
+                          : null,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 8),
+                      border: InputBorder.none,
+                      isDense: true,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              GestureDetector(
+                onTap: () => setState(() => _showFilters = !_showFilters),
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: _hasActiveFilter
+                        ? kGold.withOpacity(0.18)
+                        : const Color(0xFF101010),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: _hasActiveFilter ? kGold : kDim, width: 0.5),
+                  ),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Icon(Icons.tune,
+                          size: 18,
+                          color: _hasActiveFilter ? kGold : kDim),
+                      if (_hasActiveFilter)
+                        Positioned(
+                          top: 5,
+                          right: 5,
+                          child: Container(
+                            width: 6,
+                            height: 6,
+                            decoration: const BoxDecoration(
+                                color: kGold, shape: BoxShape.circle),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (_showFilters) _buildFilterPanel(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildListHeader() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildSearchBar(),
+        _buildSortBar(),
+      ],
     );
   }
 
@@ -1350,9 +1560,11 @@ class _SignalsTabState extends State<SignalsTab> {
     if (_signals.isEmpty) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
-        children: const [
-          SizedBox(
-            height: 300,
+        padding: const EdgeInsets.all(8),
+        children: [
+          _buildListHeader(),
+          const SizedBox(
+            height: 260,
             child: Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -1368,14 +1580,37 @@ class _SignalsTabState extends State<SignalsTab> {
         ],
       );
     }
-    final sorted = _sortedSignals;
+    final filtered = _filteredSignals;
+    if (filtered.isEmpty) {
+      return ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(8),
+        children: [
+          _buildListHeader(),
+          const SizedBox(height: 60),
+          const Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.search_off, color: kDim, size: 40),
+                SizedBox(height: 8),
+                Text('Нет совпадений', style: TextStyle(color: kDim)),
+                SizedBox(height: 4),
+                Text('Измените фильтр или поиск',
+                    style: TextStyle(color: kDim, fontSize: 12)),
+              ],
+            ),
+          ),
+        ],
+      );
+    }
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(8),
-      itemCount: sorted.length + 1,
+      itemCount: filtered.length + 1,
       itemBuilder: (ctx, i) {
-        if (i == 0) return _buildSortBar();
-        return _SignalCard(signal: sorted[i - 1]);
+        if (i == 0) return _buildListHeader();
+        return _SignalCard(signal: filtered[i - 1]);
       },
     );
   }
