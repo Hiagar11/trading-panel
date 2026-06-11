@@ -13,8 +13,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 43;
-const String kCurrentVersion = '1.5.7';
+const int kCurrentBuild = 46;
+const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -1235,61 +1235,73 @@ class _SignalCard extends StatelessWidget {
             ? kRed
             : kDim;
 
-    return Card(
-      margin: const EdgeInsets.symmetric(vertical: 4),
-      child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Text(pair.toString(),
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 15)),
-                const Spacer(),
-                if (direction.isNotEmpty)
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                    decoration: BoxDecoration(
-                      color: dirColor.withOpacity(0.15),
-                      borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: dirColor, width: 0.5),
+    return GestureDetector(
+      onLongPress: () {
+        Clipboard.setData(ClipboardData(text: pair.toString()));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Скопировано: $pair'),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      },
+      child: Card(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Text(pair.toString(),
+                      style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 15)),
+                  const Spacer(),
+                  if (direction.isNotEmpty)
+                    Container(
+                      padding:
+                          const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: dirColor.withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(4),
+                        border: Border.all(color: dirColor, width: 0.5),
+                      ),
+                      child: Text(direction,
+                          style: TextStyle(
+                              color: dirColor,
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold)),
                     ),
-                    child: Text(direction,
-                        style: TextStyle(
-                            color: dirColor,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 6),
+                  _OutcomeBadge(
+                    outcome: s['outcome']?.toString() ??
+                        s['status']?.toString() ??
+                        s['result']?.toString(),
                   ),
-                const SizedBox(width: 6),
-                _OutcomeBadge(
-                  outcome: s['outcome']?.toString() ??
-                      s['status']?.toString() ??
-                      s['result']?.toString(),
-                ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Row(
+                children: [
+                  if (price != null)
+                    _InfoChip('Вход', price.toString(), Colors.white),
+                  if (sl != null)
+                    _InfoChip('SL', sl.toString(), kRed),
+                  if (tp != null)
+                    _InfoChip('TP', tp.toString(), kGreen),
+                ],
+              ),
+              if (ts != null) ...[
+                const SizedBox(height: 4),
+                Text(ts.toString(),
+                    style: const TextStyle(color: kDim, fontSize: 11)),
               ],
-            ),
-            const SizedBox(height: 6),
-            Row(
-              children: [
-                if (price != null)
-                  _InfoChip('Вход', price.toString(), Colors.white),
-                if (sl != null)
-                  _InfoChip('SL', sl.toString(), kRed),
-                if (tp != null)
-                  _InfoChip('TP', tp.toString(), kGreen),
-              ],
-            ),
-            if (ts != null) ...[
-              const SizedBox(height: 4),
-              Text(ts.toString(),
-                  style: const TextStyle(color: kDim, fontSize: 11)),
             ],
-          ],
+          ),
         ),
       ),
     );
