@@ -19,7 +19,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 68;
+const int kCurrentBuild = 69;
 const String kCurrentVersion = '1.6.2';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -567,7 +567,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _statusTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchStatus());
     // GitHub fallback update check (runs when VPS is unreachable)
     _checkUpdate();
-    _checkUpdateTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkUpdate());
+    _checkUpdateTimer = Timer.periodic(const Duration(seconds: 20), (_) => _checkUpdate());
     _fetchHealth();
     _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) => _fetchHealth());
     _setupFCM();
@@ -892,7 +892,14 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: GestureDetector(
           onLongPress: _showDevMenu,
-          child: const Text('TRADING PANEL v$kCurrentVersion'),
+          child: const Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('TRADING PANEL'),
+              Text('v$kCurrentVersion', style: TextStyle(fontSize: 11, color: kDim)),
+            ],
+          ),
         ),
         actions: [
           Padding(
