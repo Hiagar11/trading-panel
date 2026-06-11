@@ -13,7 +13,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 47;
+const int kCurrentBuild = 48;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'http://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -1212,14 +1212,57 @@ class _SignalsTabState extends State<SignalsTab> {
   }
 }
 
-class _SignalCard extends StatelessWidget {
+String _relativeTime(dynamic ts) {
+  if (ts == null) return '';
+  DateTime? dt;
+  try {
+    final raw = ts.toString();
+    dt = DateTime.tryParse(raw);
+    if (dt == null) {
+      final epoch = double.tryParse(raw);
+      if (epoch != null) {
+        dt = DateTime.fromMillisecondsSinceEpoch(
+            epoch > 1e10 ? epoch.toInt() : (epoch * 1000).toInt());
+      }
+    }
+  } catch (_) {}
+  if (dt == null) return ts.toString();
+  final diff = DateTime.now().toUtc().difference(dt.toUtc()).abs();
+  if (diff.inSeconds < 60) return '${diff.inSeconds}s ago';
+  if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+  if (diff.inHours < 24) return '${diff.inHours}h ago';
+  return '${diff.inDays}d ago';
+}
+
+class _SignalCard extends StatefulWidget {
   final dynamic signal;
   const _SignalCard({required this.signal});
 
   @override
+  State<_SignalCard> createState() => _SignalCardState();
+}
+
+class _SignalCardState extends State<_SignalCard> {
+  Timer? _relTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _relTimer = Timer.periodic(const Duration(minutes: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _relTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final Map<String, dynamic> s =
-        signal is Map<String, dynamic> ? signal : {};
+        widget.signal is Map<String, dynamic> ? widget.signal : {};
     final pair = s['pair'] ?? s['symbol'] ?? s['channel'] ?? '—';
     final direction = (s['direction'] ?? s['side'] ?? s['type'] ?? '')
         .toString()
@@ -1228,6 +1271,7 @@ class _SignalCard extends StatelessWidget {
     final sl = s['sl'] ?? s['stop_loss'];
     final tp = s['tp'] ?? s['take_profit'];
     final ts = s['timestamp'] ?? s['created_at'] ?? s['time'];
+    final relTime = _relativeTime(ts);
     final isLong = direction.contains('LONG') || direction.contains('BUY');
     final isShort = direction.contains('SHORT') || direction.contains('SELL');
     final dirColor = isLong
@@ -1298,8 +1342,19 @@ class _SignalCard extends StatelessWidget {
               ),
               if (ts != null) ...[
                 const SizedBox(height: 4),
-                Text(ts.toString(),
-                    style: const TextStyle(color: kDim, fontSize: 11)),
+                Row(
+                  children: [
+                    Text(relTime,
+                        style: const TextStyle(
+                            color: kGold, fontSize: 11, fontWeight: FontWeight.w500)),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(ts.toString(),
+                          style: const TextStyle(color: kDim, fontSize: 10),
+                          overflow: TextOverflow.ellipsis),
+                    ),
+                  ],
+                ),
               ],
             ],
           ),
