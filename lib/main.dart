@@ -19,7 +19,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 71;
+const int kCurrentBuild = 72;
 const String kCurrentVersion = '1.6.2';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -45,7 +45,7 @@ Future<void> _initSecureClient() async {
         (X509Certificate cert, String host, int port) {
       // Accept our pinned self-signed cert regardless of hostname
       return cert.sha1.map((b) => b.toRadixString(16).padLeft(2, '0')).join(':').toUpperCase() ==
-          '06:52:72:91:82:33:BE:89:D4:FB:3C:F6:50:5D:2A:5D:01:76:0C:AB';
+          'C4:AC:37:F2:7E:48:D3:BD:94:C6:6A:90:4B:0E:95:7C:7B:62:84:CC';
     };
     _secureHttpClient = IOClient(_secureDartIoClient!);
   } catch (e) {
