@@ -3,7 +3,7 @@
 
 ## TODO
 - [x] debug: check _checkNewSignals() for edge cases — null pair/symbol, malformed JSON lines in events.jsonl, duplicate signal ids
-- [ ] debug: verify WebSocket reconnect actually recovers after 60s network drop (check onDone/onError handler timing)
+- [x] debug: verify WebSocket reconnect actually recovers after 60s network drop (check onDone/onError handler timing)
 - [ ] debug: check _downloadAndInstall — what happens if storage permission denied mid-download
 - [ ] feature: pull-to-refresh on signals list (RefreshIndicator wrapper)
 - [ ] feature: signal list sorting toggle (newest first / by pair / by P&L)
@@ -28,3 +28,4 @@
 ## NIGHT LOG
 (each cycle appends one line: timestamp | action | result)
 - 23:30 UTC | debug: _checkNewSignals() edge cases — null guard on cast, empty id check, explicit toString on pair | done | build 41
+- 00:03 UTC | debug: WebSocket reconnect — added _pendingReconnect field, prevent duplicate reconnects, exponential backoff (5/10/30/60s), cancel on dispose | done | build 42
