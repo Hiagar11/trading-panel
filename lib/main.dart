@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 55;
+const int kCurrentBuild = 56;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -26,6 +26,57 @@ const kGold = Color(0xFFD4A017);
 const kGreen = Color(0xFF22D3A5);
 const kRed = Color(0xFFFF4466);
 const kDim = Color(0xFF6B6B6B);
+
+// ─── Theme Customization ──────────────────────────────────────────────────────
+const _kAccentPresets = [
+  Color(0xFFD4A017), // Gold (default)
+  Color(0xFF22D3A5), // Teal
+  Color(0xFFA855F7), // Purple
+  Color(0xFFF97316), // Orange
+];
+
+const _kCardPresets = [
+  Color(0xFF101010), // Default
+  Color(0xFF1A1A1A), // Warm
+  Color(0xFF0D1117), // Cool
+];
+
+class _ThemeCustom {
+  final Color accent;
+  final Color cardBg;
+  final bool gridView;
+  const _ThemeCustom({
+    this.accent = const Color(0xFFD4A017),
+    this.cardBg = const Color(0xFF101010),
+    this.gridView = false,
+  });
+}
+
+final _themeCustom = ValueNotifier<_ThemeCustom>(const _ThemeCustom());
+
+Future<void> _loadThemeCustom() async {
+  final prefs = await SharedPreferences.getInstance();
+  final accentIdx = (prefs.getInt('theme_accent') ?? 0).clamp(0, _kAccentPresets.length - 1);
+  final cardIdx = (prefs.getInt('theme_card') ?? 0).clamp(0, _kCardPresets.length - 1);
+  final gridView = prefs.getBool('theme_grid') ?? false;
+  _themeCustom.value = _ThemeCustom(
+    accent: _kAccentPresets[accentIdx],
+    cardBg: _kCardPresets[cardIdx],
+    gridView: gridView,
+  );
+}
+
+Future<void> _saveThemeCustom(int accentIdx, int cardIdx, bool gridView) async {
+  final prefs = await SharedPreferences.getInstance();
+  await prefs.setInt('theme_accent', accentIdx);
+  await prefs.setInt('theme_card', cardIdx);
+  await prefs.setBool('theme_grid', gridView);
+  _themeCustom.value = _ThemeCustom(
+    accent: _kAccentPresets[accentIdx],
+    cardBg: _kCardPresets[cardIdx],
+    gridView: gridView,
+  );
+}
 
 // ─── UI Mode ──────────────────────────────────────────────────────────────────
 enum UiMode { basic, advanced }
@@ -262,49 +313,52 @@ class TradingPanelApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Trading Panel',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        brightness: Brightness.dark,
-        scaffoldBackgroundColor: kBg,
-        colorScheme: const ColorScheme.dark(
-          primary: kGold,
-          secondary: kGold,
-          surface: kCard,
-          background: kBg,
-        ),
-        appBarTheme: const AppBarTheme(
-          backgroundColor: kCard,
-          elevation: 0,
-          titleTextStyle: TextStyle(
-            color: kGold,
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.2,
+    return ValueListenableBuilder<_ThemeCustom>(
+      valueListenable: _themeCustom,
+      builder: (_, custom, __) => MaterialApp(
+        title: 'Trading Panel',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          brightness: Brightness.dark,
+          scaffoldBackgroundColor: kBg,
+          colorScheme: ColorScheme.dark(
+            primary: custom.accent,
+            secondary: custom.accent,
+            surface: custom.cardBg,
+            background: kBg,
           ),
-          iconTheme: IconThemeData(color: kGold),
+          appBarTheme: AppBarTheme(
+            backgroundColor: kCard,
+            elevation: 0,
+            titleTextStyle: TextStyle(
+              color: custom.accent,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+              letterSpacing: 1.2,
+            ),
+            iconTheme: IconThemeData(color: custom.accent),
+          ),
+          bottomNavigationBarTheme: const BottomNavigationBarThemeData(
+            backgroundColor: kCard,
+            selectedItemColor: kGold,
+            unselectedItemColor: kDim,
+            type: BottomNavigationBarType.fixed,
+          ),
+          cardTheme: CardThemeData(
+            color: custom.cardBg,
+            elevation: 0,
+          ),
+          textTheme: const TextTheme(
+            bodyMedium: TextStyle(color: Colors.white),
+            bodySmall: TextStyle(color: kDim),
+          ),
+          floatingActionButtonTheme: FloatingActionButtonThemeData(
+            backgroundColor: custom.accent,
+            foregroundColor: Colors.black,
+          ),
         ),
-        bottomNavigationBarTheme: const BottomNavigationBarThemeData(
-          backgroundColor: kCard,
-          selectedItemColor: kGold,
-          unselectedItemColor: kDim,
-          type: BottomNavigationBarType.fixed,
-        ),
-        cardTheme: const CardThemeData(
-          color: kCard,
-          elevation: 0,
-        ),
-        textTheme: const TextTheme(
-          bodyMedium: TextStyle(color: Colors.white),
-          bodySmall: TextStyle(color: kDim),
-        ),
-        floatingActionButtonTheme: const FloatingActionButtonThemeData(
-          backgroundColor: kGold,
-          foregroundColor: Colors.black,
-        ),
+        home: const HomeScreen(),
       ),
-      home: const HomeScreen(),
     );
   }
 }
@@ -473,6 +527,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _init() async {
     await SessionManager.load();
     await _loadUiMode();
+    await _loadThemeCustom();
     await _requestPermissions();
     _fetchStatus();
     _wsService.connect();
@@ -1055,9 +1110,36 @@ class _ProfileSheetState extends State<ProfileSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Профиль',
-              style: TextStyle(
-                  color: kGold, fontSize: 18, fontWeight: FontWeight.bold)),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text('Профиль',
+                  style: TextStyle(
+                      color: kGold, fontSize: 18, fontWeight: FontWeight.bold)),
+              GestureDetector(
+                onTap: () => showDialog(
+                  context: context,
+                  builder: (_) => const _ThemePanelDialog(),
+                ),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  decoration: BoxDecoration(
+                    color: kGold.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: kGold.withOpacity(0.4), width: 0.5),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: const [
+                      Icon(Icons.palette_outlined, color: kGold, size: 14),
+                      SizedBox(width: 5),
+                      Text('Вид', style: TextStyle(color: kGold, fontSize: 12)),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: 16),
           if (SessionManager.isLoggedIn) ...[
             Row(
@@ -1331,6 +1413,175 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
           child: const Text('Создать', style: TextStyle(color: kGold)),
         ),
       ],
+    );
+  }
+}
+
+// ─── Theme Panel Dialog ───────────────────────────────────────────────────────
+class _ThemePanelDialog extends StatefulWidget {
+  const _ThemePanelDialog();
+  @override
+  State<_ThemePanelDialog> createState() => _ThemePanelDialogState();
+}
+
+class _ThemePanelDialogState extends State<_ThemePanelDialog> {
+  late int _accentIdx;
+  late int _cardIdx;
+  late bool _gridView;
+
+  static const _accentLabels = ['Gold', 'Teal', 'Purple', 'Orange'];
+  static const _cardLabels = ['Default', 'Warm', 'Cool'];
+
+  @override
+  void initState() {
+    super.initState();
+    final cur = _themeCustom.value;
+    _accentIdx = _kAccentPresets.indexOf(cur.accent).clamp(0, _kAccentPresets.length - 1);
+    _cardIdx = _kCardPresets.indexOf(cur.cardBg).clamp(0, _kCardPresets.length - 1);
+    _gridView = cur.gridView;
+  }
+
+  Widget _swatch(Color color, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 36,
+        height: 36,
+        decoration: BoxDecoration(
+          color: color,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: selected ? Colors.white : Colors.transparent,
+            width: selected ? 2.5 : 0,
+          ),
+          boxShadow: selected
+              ? [BoxShadow(color: color.withOpacity(0.5), blurRadius: 8, spreadRadius: 1)]
+              : null,
+        ),
+      ),
+    );
+  }
+
+  Widget _cardSwatch(Color bg, String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        width: 60,
+        height: 36,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(
+            color: selected ? Colors.white : kDim,
+            width: selected ? 2 : 0.5,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(label,
+            style: TextStyle(
+                color: selected ? Colors.white : kDim,
+                fontSize: 10,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      backgroundColor: kCard,
+      title: Row(children: [
+        const Icon(Icons.palette_outlined, color: kGold, size: 18),
+        const SizedBox(width: 8),
+        const Text('Внешний вид', style: TextStyle(color: kGold, fontSize: 16)),
+      ]),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Акцентный цвет',
+              style: TextStyle(color: kDim, fontSize: 11, letterSpacing: 0.8)),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(_kAccentPresets.length, (i) => Column(
+              children: [
+                _swatch(_kAccentPresets[i], _accentIdx == i,
+                    () => setState(() => _accentIdx = i)),
+                const SizedBox(height: 4),
+                Text(_accentLabels[i],
+                    style: const TextStyle(color: kDim, fontSize: 9)),
+              ],
+            )),
+          ),
+          const SizedBox(height: 16),
+          const Text('Фон карточки',
+              style: TextStyle(color: kDim, fontSize: 11, letterSpacing: 0.8)),
+          const SizedBox(height: 10),
+          Row(
+            children: List.generate(_kCardPresets.length, (i) => Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _cardSwatch(_kCardPresets[i], _cardLabels[i], _cardIdx == i,
+                  () => setState(() => _cardIdx = i)),
+            )),
+          ),
+          const SizedBox(height: 16),
+          const Text('Вид списка сигналов',
+              style: TextStyle(color: kDim, fontSize: 11, letterSpacing: 0.8)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _viewToggle(Icons.view_list, 'Лента', !_gridView,
+                  () => setState(() => _gridView = false)),
+              const SizedBox(width: 8),
+              _viewToggle(Icons.grid_view, 'Сетка', _gridView,
+                  () => setState(() => _gridView = true)),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Отмена', style: TextStyle(color: kDim)),
+        ),
+        TextButton(
+          onPressed: () {
+            Navigator.pop(context);
+            _saveThemeCustom(_accentIdx, _cardIdx, _gridView);
+          },
+          child: const Text('Применить', style: TextStyle(color: kGold)),
+        ),
+      ],
+    );
+  }
+
+  Widget _viewToggle(IconData icon, String label, bool selected, VoidCallback onTap) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 150),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? kGold.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: selected ? kGold : kDim, width: selected ? 1.5 : 0.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: selected ? kGold : kDim, size: 16),
+            const SizedBox(width: 6),
+            Text(label,
+                style: TextStyle(
+                    color: selected ? kGold : kDim,
+                    fontSize: 12,
+                    fontWeight: selected ? FontWeight.bold : FontWeight.normal)),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1677,17 +1928,20 @@ class _SignalsTabState extends State<SignalsTab> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: kGold));
     }
-    return RefreshIndicator(
-      color: kGold,
-      onRefresh: () async {
-        setState(() => _loading = false);
-        await _fetch();
-      },
-      child: _buildContent(),
+    return ValueListenableBuilder<_ThemeCustom>(
+      valueListenable: _themeCustom,
+      builder: (_, custom, __) => RefreshIndicator(
+        color: kGold,
+        onRefresh: () async {
+          setState(() => _loading = false);
+          await _fetch();
+        },
+        child: _buildContent(custom.gridView),
+      ),
     );
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(bool gridView) {
     if (_error != null) {
       return ListView(
         physics: const AlwaysScrollableScrollPhysics(),
@@ -1763,6 +2017,34 @@ class _SignalsTabState extends State<SignalsTab> {
                 Text('Измените фильтр или поиск',
                     style: TextStyle(color: kDim, fontSize: 12)),
               ],
+            ),
+          ),
+        ],
+      );
+    }
+    if (gridView) {
+      return CustomScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        slivers: [
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+              child: _buildListHeader(),
+            ),
+          ),
+          SliverPadding(
+            padding: const EdgeInsets.all(8),
+            sliver: SliverGrid(
+              delegate: SliverChildBuilderDelegate(
+                (ctx, i) => _SignalCard(signal: filtered[i]),
+                childCount: filtered.length,
+              ),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 2,
+                crossAxisSpacing: 6,
+                mainAxisSpacing: 6,
+                childAspectRatio: 0.78,
+              ),
             ),
           ),
         ],
