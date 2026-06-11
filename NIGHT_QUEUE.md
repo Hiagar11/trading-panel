@@ -21,7 +21,7 @@
 - [x] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
 - [x] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
 - [x] debug: audit all timers and StreamSubscriptions for proper disposal in dispose() method (prevent memory bloat)
-- [ ] feature: add memory profiling stats to dev menu — show current heap usage, GC pressure (--profile mode support)
+- [x] feature: add memory profiling stats to dev menu — show current heap usage, GC pressure (--profile mode support)
 - [ ] debug: ensure all transaction/order status messages display progress indicators (Material ProgressIndicator or Lottie)
 - [ ] feature: add dark mode customization panel — allow users to adjust accent colors, signal list contrast, grid/card view toggle
 - [x] research: search web for "flutter crypto trading app ux improvements 2025" and add new ideas here (subsumed by comprehensive research)
@@ -60,6 +60,7 @@
 - 08:38 UTC | feature: update kApiBase to https/wss — changed kApiBase http://→https://, WebSocket ws://→wss://, download URL http://→https:// | done | build 51
 - 08:47 UTC | feature: tiered UI mode toggle (Basic/Advanced) — _uiMode ValueNotifier+SharedPreferences, BASIC/ADV chip in AppBar; Basic hides watcher controls, channel owner actions, position close button | done | build 52
 - 08:58 UTC | feature: robust search/filter on signals list — text search by pair, direction filter (ALL/LONG/SHORT), status filter (ALL/TP/SL/OPEN), time range filter (ALL/1h/24h/7d), filter panel toggle with active-state indicator dot, "no matches" empty state | done | build 53
+- 09:01 UTC | feature: dev menu with memory profiling stats — long-press AppBar title opens _DevMenuDialog; shows current RSS, peak RSS, GC pressure %, refreshes every 2s; Timeline.startSync hint for --profile DevTools | done | build 54
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43

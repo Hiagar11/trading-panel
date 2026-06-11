@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 54;
+const int kCurrentBuild = 55;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -727,7 +727,25 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _setWatcher(bool start) async {
     final action = start ? 'start' : 'stop';
+    final statusMsg = start ? 'Запуск наблюдателя...' : 'Остановка наблюдателя...';
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        content: Row(
+          children: [
+            const CircularProgressIndicator(color: kGold),
+            const SizedBox(width: 16),
+            Expanded(child: Text(statusMsg, style: const TextStyle(color: Colors.white))),
+          ],
+        ),
+      ),
+    );
     await apiPost('/watcher', {'action': action});
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
     await _fetchStatus();
   }
 
@@ -999,11 +1017,28 @@ class _ProfileSheetState extends State<ProfileSheet> {
   }
 
   Future<void> _logout() async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        content: const Row(
+          children: [
+            CircularProgressIndicator(color: kGold),
+            SizedBox(width: 16),
+            Expanded(child: Text('Выход...', style: TextStyle(color: Colors.white))),
+          ],
+        ),
+      ),
+    );
     if (SessionManager.userId != null) {
       await apiPost('/users/${SessionManager.userId}/logout', {},
           auth: true);
     }
     await SessionManager.clear();
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
     widget.onChanged();
   }
 
@@ -2024,12 +2059,29 @@ class _PositionsTabState extends State<PositionsTab> {
   }
 
   Future<void> _closePosition(String id) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        content: const Row(
+          children: [
+            CircularProgressIndicator(color: kGold),
+            SizedBox(width: 16),
+            Expanded(child: Text('Закрытие позиции...', style: TextStyle(color: Colors.white))),
+          ],
+        ),
+      ),
+    );
     final ok = await apiDelete('/positions/$id', auth: true);
-    if (ok) {
-      _showToast('Позиция закрыта');
-      _fetch();
-    } else {
-      _showToast('Ошибка закрытия позиции');
+    if (mounted) {
+      Navigator.of(context).pop();
+      if (ok) {
+        _showToast('Позиция закрыта');
+        _fetch();
+      } else {
+        _showToast('Ошибка закрытия позиции');
+      }
     }
   }
 
@@ -2368,41 +2420,108 @@ class _ChannelsTabState extends State<ChannelsTab> {
       builder: (ctx) => const _AddChannelDialog(),
     );
     if (result == null) return;
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        content: const Row(
+          children: [
+            CircularProgressIndicator(color: kGold),
+            SizedBox(width: 16),
+            Expanded(child: Text('Добавление канала...', style: TextStyle(color: Colors.white))),
+          ],
+        ),
+      ),
+    );
     final ok = await apiPost('/channels', result, auth: true);
-    if (ok != null) {
-      _showToast('Канал добавлен');
-      _fetch();
-    } else {
-      _showToast('Ошибка добавления');
+    if (mounted) {
+      Navigator.of(context).pop();
+      if (ok != null) {
+        _showToast('Канал добавлен');
+        _fetch();
+      } else {
+        _showToast('Ошибка добавления');
+      }
     }
   }
 
   Future<void> _deleteChannel(String id) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        content: const Row(
+          children: [
+            CircularProgressIndicator(color: kGold),
+            SizedBox(width: 16),
+            Expanded(child: Text('Удаление канала...', style: TextStyle(color: Colors.white))),
+          ],
+        ),
+      ),
+    );
     final ok = await apiDelete('/channels/$id', auth: true);
-    if (ok) {
-      _showToast('Канал удалён');
-      _fetch();
-    } else {
-      _showToast('Ошибка удаления');
+    if (mounted) {
+      Navigator.of(context).pop();
+      if (ok) {
+        _showToast('Канал удалён');
+        _fetch();
+      } else {
+        _showToast('Ошибка удаления');
+      }
     }
   }
 
   Future<void> _toggleChannel(String id, bool active) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        content: const Row(
+          children: [
+            CircularProgressIndicator(color: kGold),
+            SizedBox(width: 16),
+            Expanded(child: Text('Изменение статуса...', style: TextStyle(color: Colors.white))),
+          ],
+        ),
+      ),
+    );
     final ok = await apiPatch('/channels/$id', {'active': !active}, auth: true);
-    if (ok) {
-      _fetch();
-    } else {
-      _showToast('Ошибка изменения статуса');
+    if (mounted) {
+      Navigator.of(context).pop();
+      if (ok) {
+        _fetch();
+      } else {
+        _showToast('Ошибка изменения статуса');
+      }
     }
   }
 
   Future<void> _analyzeChannel(String id) async {
-    _showToast('Анализирую канал...');
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: kCard,
+        content: const Row(
+          children: [
+            CircularProgressIndicator(color: kGold),
+            SizedBox(width: 16),
+            Expanded(child: Text('Анализ канала...', style: TextStyle(color: Colors.white))),
+          ],
+        ),
+      ),
+    );
     final resp = await apiPost('/channels/$id/analyze', {}, auth: true);
-    if (resp != null) {
-      _showToast('Анализ завершён');
-    } else {
-      _showToast('Ошибка анализа');
+    if (mounted) {
+      Navigator.of(context).pop();
+      if (resp != null) {
+        _showToast('Анализ завершён');
+      } else {
+        _showToast('Ошибка анализа');
+      }
     }
   }
 
