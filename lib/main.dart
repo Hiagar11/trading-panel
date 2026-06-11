@@ -19,8 +19,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 67;
-const String kCurrentVersion = '1.6.1';
+const int kCurrentBuild = 68;
+const String kCurrentVersion = '1.6.2';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -771,8 +771,9 @@ class _HomeScreenState extends State<HomeScreen> {
       final file = File('${dir.path}/trading_panel_update.apk');
 
       // Стриминговый download с отображением прогресса
-      final request = http.Request('GET', Uri.parse('https://85.192.38.213:8766/download/apk'));
-      final response = await _secureHttpClient.send(request);
+      const apkUrl = 'https://github.com/Hiagar11/trading-panel/releases/latest/download/trading_panel.apk';
+      final request = http.Request('GET', Uri.parse(apkUrl));
+      final response = await http.Client().send(request);
       final bytes = <int>[];
       int received = 0;
       final total = response.contentLength ?? 0;
