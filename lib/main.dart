@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 61;
+const int kCurrentBuild = 62;
 const String kCurrentVersion = '1.5.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -1602,6 +1602,7 @@ class SignalsTab extends StatefulWidget {
 
 class _SignalsTabState extends State<SignalsTab> {
   List<dynamic> _signals = [];
+  final Set<String> _archivedIds = {};
   bool _loading = true;
   String? _error;
   Timer? _timer;
@@ -1685,11 +1686,17 @@ class _SignalsTabState extends State<SignalsTab> {
     return list;
   }
 
+  String _signalKey(dynamic raw) {
+    final s = raw is Map<String, dynamic> ? raw : <String, dynamic>{};
+    return (s['id'] ?? s['timestamp'] ?? s['created_at'] ?? s['time'] ?? identityHashCode(raw)).toString();
+  }
+
   List<dynamic> get _filteredSignals {
     final sorted = _sortedSignals;
     final query = _searchCtrl.text.trim().toLowerCase();
     final now = DateTime.now().toUtc();
     return sorted.where((raw) {
+      if (_archivedIds.contains(_signalKey(raw))) return false;
       final s = raw is Map<String, dynamic> ? raw : <String, dynamic>{};
       if (query.isNotEmpty) {
         final pair = (s['pair'] ?? s['symbol'] ?? '').toString().toLowerCase();
@@ -2056,7 +2063,41 @@ class _SignalsTabState extends State<SignalsTab> {
       itemCount: filtered.length + 1,
       itemBuilder: (ctx, i) {
         if (i == 0) return _buildListHeader();
-        return _SignalCard(signal: filtered[i - 1]);
+        final sig = filtered[i - 1];
+        final key = _signalKey(sig);
+        return Dismissible(
+          key: ValueKey(key),
+          direction: DismissDirection.endToStart,
+          background: Container(
+            alignment: Alignment.centerRight,
+            padding: const EdgeInsets.only(right: 20),
+            margin: const EdgeInsets.symmetric(vertical: 4),
+            decoration: BoxDecoration(
+              color: kRed.withOpacity(0.15),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.archive_outlined, color: kRed, size: 24),
+          ),
+          onDismissed: (_) {
+            setState(() => _archivedIds.add(key));
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              SnackBar(
+                backgroundColor: const Color(0xFF1A1A1A),
+                duration: const Duration(seconds: 5),
+                content: const Text('Сигнал скрыт',
+                    style: TextStyle(color: Colors.white)),
+                action: SnackBarAction(
+                  label: 'Отмена',
+                  textColor: kGold,
+                  onPressed: () {
+                    setState(() => _archivedIds.remove(key));
+                  },
+                ),
+              ),
+            );
+          },
+          child: _SignalCard(signal: sig),
+        );
       },
     );
   }
