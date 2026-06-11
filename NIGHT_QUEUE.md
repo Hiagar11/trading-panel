@@ -27,6 +27,18 @@
 - [x] research: search web for "flutter crypto trading app ux improvements 2025" and add new ideas here (subsumed by comprehensive research)
 - [x] research: search web for "flutter android performance optimization tips" and add relevant ones (subsumed by comprehensive research)
 
+## WAVE 2 — Next tasks
+- [ ] feature: real-time price ticker on open positions — WebSocket price feed from MEXC, show current price + unrealized P&L % live (update every 2s)
+- [ ] feature: mini spark-chart on open position card — last 20 price points, green/red line depending on direction, no axis labels
+- [ ] infra: Let's Encrypt cert via certbot — replace self-signed cert; run certbot certonly --standalone for server IP/domain, update api_server.py paths, restart server
+- [ ] feature: FCM push notifications — integrate firebase_messaging plugin, register device token on login, send signal push via FCM from api_server.py instead of local notification only (works even when app is in background/killed)
+- [ ] feature: P&L summary card on home screen — total realized P&L (sum of closed positions), win rate %, best/worst trade of the day
+- [ ] feature: signal detail sheet — tap signal card opens bottom sheet with full details: entry/TP/SL levels, chart context, time elapsed, notes from channel
+- [ ] feature: channel performance stats — per-channel win rate, avg P&L, total signals, best/worst pair; tap channel name to open stats sheet
+- [ ] debug: audit api_server.py endpoints — check all endpoints return correct status codes, add /health returning {status, uptime, open_positions_count, last_signal_ts}; verify /funding and /ws behave correctly under HTTPS
+- [ ] feature: swipe-to-dismiss on signal cards — swipe left to archive/hide signal, with undo snackbar (5s)
+- [ ] feature: portfolio donut chart — breakdown of open positions by pair, shown on Positions tab header
+
 ## IN PROGRESS
 (none)
 

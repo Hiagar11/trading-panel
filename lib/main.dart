@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 56;
+const int kCurrentBuild = 57;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -2495,7 +2495,7 @@ class _StatCard extends StatelessWidget {
   }
 }
 
-class _PositionCard extends StatelessWidget {
+class _PositionCard extends StatefulWidget {
   final dynamic position;
   final VoidCallback onClose;
   final double? fundingRate;
@@ -2503,14 +2503,65 @@ class _PositionCard extends StatelessWidget {
       {required this.position, required this.onClose, this.fundingRate});
 
   @override
+  State<_PositionCard> createState() => _PositionCardState();
+}
+
+class _PositionCardState extends State<_PositionCard> {
+  double? _livePrice;
+  Timer? _tickerTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPrice();
+    _tickerTimer = Timer.periodic(const Duration(seconds: 2), (_) => _fetchPrice());
+  }
+
+  @override
+  void dispose() {
+    _tickerTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchPrice() async {
+    final Map<String, dynamic> p =
+        widget.position is Map<String, dynamic> ? widget.position as Map<String, dynamic> : {};
+    final rawPair = (p['pair'] ?? p['symbol'] ?? '').toString().toUpperCase();
+    if (rawPair.isEmpty || rawPair == '—') return;
+    // Ensure symbol ends with USDT for MEXC API
+    final symbol = rawPair.contains('USDT') ? rawPair : '${rawPair}USDT';
+    try {
+      final resp = await http
+          .get(Uri.parse('https://api.mexc.com/api/v3/ticker/price?symbol=$symbol'))
+          .timeout(const Duration(seconds: 4));
+      if (resp.statusCode == 200) {
+        final data = jsonDecode(resp.body) as Map<String, dynamic>;
+        final price = double.tryParse(data['price']?.toString() ?? '');
+        if (price != null && mounted) setState(() => _livePrice = price);
+      }
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
     final Map<String, dynamic> p =
-        position is Map<String, dynamic> ? position : {};
+        widget.position is Map<String, dynamic> ? widget.position as Map<String, dynamic> : {};
     final pair = p['pair'] ?? p['symbol'] ?? '—';
     final side = (p['side'] ?? p['direction'] ?? '').toString().toUpperCase();
     final entry = p['entry'] ?? p['entry_price'];
     final pnl = (p['pnl'] as num?)?.toDouble() ?? 0;
     final isLong = side.contains('LONG') || side.contains('BUY');
+
+    // Live P&L % from ticker
+    double? livePnlPct;
+    if (_livePrice != null && entry != null) {
+      final entryPrice = double.tryParse(entry.toString());
+      if (entryPrice != null && entryPrice > 0) {
+        livePnlPct = isLong
+            ? (_livePrice! - entryPrice) / entryPrice * 100
+            : (entryPrice - _livePrice!) / entryPrice * 100;
+      }
+    }
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -2549,12 +2600,34 @@ class _PositionCard extends StatelessWidget {
                     Text('Вход: $entry',
                         style: const TextStyle(color: kDim, fontSize: 12)),
                   ],
-                  if (fundingRate != null) ...[
+                  if (_livePrice != null) ...[
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Text(
+                          'Live: \$${_livePrice!.toStringAsFixed(_livePrice! >= 100 ? 2 : 4)}',
+                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                        ),
+                        if (livePnlPct != null) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            '${livePnlPct >= 0 ? '+' : ''}${livePnlPct.toStringAsFixed(2)}%',
+                            style: TextStyle(
+                              color: livePnlPct >= 0 ? kGreen : kRed,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ],
+                  if (widget.fundingRate != null) ...[
                     const SizedBox(height: 2),
                     Text(
-                      'FR: ${fundingRate! >= 0 ? '+' : ''}${(fundingRate! * 100).toStringAsFixed(4)}%',
+                      'FR: ${widget.fundingRate! >= 0 ? '+' : ''}${(widget.fundingRate! * 100).toStringAsFixed(4)}%',
                       style: TextStyle(
-                          color: fundingRate! >= 0 ? kGreen : kRed,
+                          color: widget.fundingRate! >= 0 ? kGreen : kRed,
                           fontSize: 11),
                     ),
                   ],
@@ -2572,7 +2645,7 @@ class _PositionCard extends StatelessWidget {
               builder: (_, mode, __) => mode == UiMode.advanced
                   ? IconButton(
                       icon: const Icon(Icons.close, color: kRed),
-                      onPressed: onClose,
+                      onPressed: widget.onClose,
                       tooltip: 'Закрыть позицию',
                     )
                   : const SizedBox.shrink(),
