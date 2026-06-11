@@ -19,7 +19,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 69;
+const int kCurrentBuild = 70;
 const String kCurrentVersion = '1.6.2';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -771,17 +771,20 @@ class _HomeScreenState extends State<HomeScreen> {
       final file = File('${dir.path}/trading_panel_update.apk');
 
       // Стриминговый download с отображением прогресса
+      // Use plain HttpClient (system CAs) for GitHub — follows 302 redirects automatically
       const apkUrl = 'https://github.com/Hiagar11/trading-panel/releases/latest/download/trading_panel.apk';
-      final request = http.Request('GET', Uri.parse(apkUrl));
-      final response = await http.Client().send(request);
+      final ioClient = HttpClient();
+      final ioReq = await ioClient.getUrl(Uri.parse(apkUrl));
+      final ioResp = await ioReq.close();
       final bytes = <int>[];
       int received = 0;
-      final total = response.contentLength ?? 0;
-      await for (final chunk in response.stream) {
+      final total = ioResp.contentLength;
+      await for (final chunk in ioResp) {
         bytes.addAll(chunk);
         received += chunk.length;
         if (total > 0) setState(() => _downloadProgress = received / total);
       }
+      ioClient.close();
       await file.writeAsBytes(bytes);
 
       // Закрыть диалог
