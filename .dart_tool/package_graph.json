@@ -5,8 +5,9 @@
   "packages": [
     {
       "name": "trading_panel",
-      "version": "1.5.8+50",
+      "version": "1.5.9+63",
       "dependencies": [
+        "fl_chart",
         "flutter",
         "flutter_local_notifications",
         "http",
@@ -46,6 +47,14 @@
         "stream_channel",
         "test_api",
         "vector_math"
+      ]
+    },
+    {
+      "name": "fl_chart",
+      "version": "0.68.0",
+      "dependencies": [
+        "equatable",
+        "flutter"
       ]
     },
     {
@@ -948,6 +957,14 @@
       "version": "3.0.7",
       "dependencies": [
         "typed_data"
+      ]
+    },
+    {
+      "name": "equatable",
+      "version": "2.0.8",
+      "dependencies": [
+        "collection",
+        "meta"
       ]
     }
   ],

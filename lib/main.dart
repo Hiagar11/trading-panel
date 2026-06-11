@@ -12,10 +12,11 @@ import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 62;
+const int kCurrentBuild = 63;
 const String kCurrentVersion = '1.5.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -2643,6 +2644,7 @@ class _PositionsTabState extends State<PositionsTab> {
             ],
           ),
           const SizedBox(height: 12),
+          _PortfolioDonutChart(positions: _positions),
           const Text('Открытые позиции',
               style: TextStyle(
                   color: kDim, fontSize: 13, fontWeight: FontWeight.w600)),
@@ -2667,6 +2669,133 @@ class _PositionsTabState extends State<PositionsTab> {
                 fundingRate: _fundingRates[pair],
               );
             }),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Portfolio Donut Chart ────────────────────────────────────────────────────
+class _PortfolioDonutChart extends StatefulWidget {
+  final List<dynamic> positions;
+  const _PortfolioDonutChart({required this.positions});
+
+  @override
+  State<_PortfolioDonutChart> createState() => _PortfolioDonutChartState();
+}
+
+class _PortfolioDonutChartState extends State<_PortfolioDonutChart> {
+  int _touchedIndex = -1;
+
+  static const _palette = [
+    kGold,
+    kGreen,
+    Color(0xFF5B8CFF),
+    Color(0xFFFF8C42),
+    Color(0xFFB47FFF),
+    Color(0xFFFF6B9D),
+    Color(0xFF42E8FF),
+    Color(0xFFFFD166),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.positions.isEmpty) {
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.symmetric(vertical: 16),
+          child: Text('Нет открытых позиций', style: TextStyle(color: kDim, fontSize: 13)),
+        ),
+      );
+    }
+
+    // Aggregate exposure by pair (use notional or equal weight if notional absent)
+    final Map<String, double> exposure = {};
+    for (final p in widget.positions) {
+      final pair = (p['pair'] ?? p['symbol'] ?? 'UNKNOWN').toString();
+      final notional = (p['notional'] ?? p['size'] ?? p['quantity'] ?? 1.0);
+      exposure[pair] = (exposure[pair] ?? 0.0) + (notional as num).toDouble().abs();
+    }
+
+    final total = exposure.values.fold(0.0, (a, b) => a + b);
+    if (total == 0) return const SizedBox.shrink();
+
+    final entries = exposure.entries.toList();
+    final sections = List<PieChartSectionData>.generate(entries.length, (i) {
+      final pct = entries[i].value / total * 100;
+      final isTouched = i == _touchedIndex;
+      return PieChartSectionData(
+        color: _palette[i % _palette.length],
+        value: entries[i].value,
+        title: isTouched ? '${entries[i].key}\n${pct.toStringAsFixed(1)}%' : '',
+        radius: isTouched ? 52 : 44,
+        titleStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
+        badgeWidget: isTouched
+            ? null
+            : SizedBox(
+                width: 0,
+                height: 0,
+                child: Opacity(opacity: 0, child: Container()),
+              ),
+      );
+    });
+
+    final legendItems = List.generate(entries.length, (i) {
+      final pct = entries[i].value / total * 100;
+      return Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(width: 8, height: 8, decoration: BoxDecoration(color: _palette[i % _palette.length], shape: BoxShape.circle)),
+          const SizedBox(width: 4),
+          Text('${entries[i].key} ${pct.toStringAsFixed(0)}%',
+              style: const TextStyle(color: kDim, fontSize: 11)),
+        ],
+      );
+    });
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(10)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Распределение позиций', style: TextStyle(color: kDim, fontSize: 12, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              SizedBox(
+                width: 120,
+                height: 120,
+                child: PieChart(
+                  PieChartData(
+                    sections: sections,
+                    centerSpaceRadius: 28,
+                    sectionsSpace: 2,
+                    pieTouchData: PieTouchData(
+                      touchCallback: (FlTouchEvent event, PieTouchResponse? resp) {
+                        setState(() {
+                          if (!event.isInterestedForInteractions || resp == null || resp.touchedSection == null) {
+                            _touchedIndex = -1;
+                          } else {
+                            _touchedIndex = resp.touchedSection!.touchedSectionIndex;
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 6,
+                  children: legendItems,
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );
