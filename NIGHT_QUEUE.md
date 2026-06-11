@@ -12,8 +12,11 @@
 - [x] feature: show timestamp "2h ago" style on each signal card (relative time, refresh every minute)
 - [x] research: COMPREHENSIVE BEST PRACTICES — web search across 3 angles: (1) flutter websocket reconnect backoff (2) crypto mobile UX best practices (3) flutter memory leak prevention. Synthesized 10 actionable findings below.
 - [x] feature: implement ping/pong heartbeat on WebSocket to detect and warn on stale connections (prevent zombie connections)
-- [ ] feature: use BehaviorSubject (rxdart) to decouple WebSocket connection logic from UI state (cleaner reactive architecture)
-- [ ] debug: verify WSS (encrypted WebSocket) enabled for all connections; audit protocol security in production
+- [x] feature: use BehaviorSubject (rxdart) to decouple WebSocket connection logic from UI state (cleaner reactive architecture)
+- [x] debug: verify WSS (encrypted WebSocket) enabled for all connections; audit protocol security in production
+- [ ] infra: setup self-signed or Let's Encrypt SSL certs for trading-bot API server (CRITICAL: all connections currently unencrypted)
+- [ ] infra: configure api_server.py to serve HTTPS + WSS with SSL certs (use uvicorn ssl_keyfile/ssl_certfile)
+- [ ] feature: update trading-panel kApiBase to use https:// and wss:// instead of http:// and ws://
 - [ ] feature: add visual "Reconnecting… (attempt N)" status pill on connection stream (user transparency)
 - [ ] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
 - [ ] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
@@ -48,6 +51,8 @@
 - 07:55 UTC | feature: relative timestamps on signal cards — _relativeTime() helper (s/m/h/d ago), _SignalCard→StatefulWidget with 1-min Timer, gold color + raw ts secondary | done | build 48
 - 08:00 UTC | research: COMPREHENSIVE BEST PRACTICES — web search 3 angles (network resilience, crypto mobile UX, memory leak prevention); synthesized 10 actionable findings into TODO | done | no-build
 - 08:07 UTC | feature: ping/pong heartbeat — _startPingTimer() every 20s, _resetPongTimer() on any message, 10s pong timeout sets _wsStale, STALE status pill (amber) in AppBar | done | build 49
+- 08:09 UTC | feature: BehaviorSubject WS service — added rxdart ^0.28.0, TradingWsService class with BehaviorSubject<WsSnapshot>, moved all WS/reconnect/ping-pong logic out of HomeScreenState into service; _HomeScreenState subscribes via StreamSubscription | done | build 50
+- 08:14 UTC | debug: audit protocol security — CRITICAL: all connections unencrypted (ws:// WS, http:// REST). No SSL/TLS setup found. Added 3 follow-up infra tasks for HTTPS+WSS | done | no-build
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
