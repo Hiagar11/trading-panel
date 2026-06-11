@@ -1002,6 +1002,8 @@ class _CreateUserDialogState extends State<_CreateUserDialog> {
 }
 
 // ─── Signals Tab ──────────────────────────────────────────────────────────────
+enum _SignalSort { newest, pair, pnl }
+
 class SignalsTab extends StatefulWidget {
   final void Function(Map<String, dynamic>) onNewSignal;
   const SignalsTab({super.key, required this.onNewSignal});
@@ -1016,6 +1018,7 @@ class _SignalsTabState extends State<SignalsTab> {
   String? _error;
   Timer? _timer;
   String? _lastId;
+  _SignalSort _sortMode = _SignalSort.newest;
 
   @override
   void initState() {
@@ -1053,6 +1056,76 @@ class _SignalsTabState extends State<SignalsTab> {
   void dispose() {
     _timer?.cancel();
     super.dispose();
+  }
+
+  List<dynamic> get _sortedSignals {
+    final list = List<dynamic>.from(_signals);
+    switch (_sortMode) {
+      case _SignalSort.newest:
+        break; // API already returns newest first
+      case _SignalSort.pair:
+        list.sort((a, b) {
+          final ma = a is Map ? a : <String, dynamic>{};
+          final mb = b is Map ? b : <String, dynamic>{};
+          final pa = (ma['pair'] ?? ma['symbol'] ?? '').toString();
+          final pb = (mb['pair'] ?? mb['symbol'] ?? '').toString();
+          return pa.compareTo(pb);
+        });
+      case _SignalSort.pnl:
+        list.sort((a, b) {
+          final ma = a is Map ? a : <String, dynamic>{};
+          final mb = b is Map ? b : <String, dynamic>{};
+          final pa = ma['pnl'] ?? ma['profit'] ?? ma['profit_pct'] ?? 0;
+          final pb = mb['pnl'] ?? mb['profit'] ?? mb['profit_pct'] ?? 0;
+          final da = pa is num ? pa.toDouble() : double.tryParse(pa.toString()) ?? 0;
+          final db = pb is num ? pb.toDouble() : double.tryParse(pb.toString()) ?? 0;
+          return db.compareTo(da); // highest P&L first
+        });
+    }
+    return list;
+  }
+
+  Widget _buildSortChip(String label, _SignalSort mode, IconData icon) {
+    final active = _sortMode == mode;
+    return GestureDetector(
+      onTap: () => setState(() => _sortMode = mode),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+        decoration: BoxDecoration(
+          color: active ? kGold.withOpacity(0.15) : Colors.transparent,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: active ? kGold : kDim, width: 0.5),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: active ? kGold : kDim),
+            const SizedBox(width: 4),
+            Text(label,
+                style: TextStyle(
+                    color: active ? kGold : kDim,
+                    fontSize: 12,
+                    fontWeight:
+                        active ? FontWeight.bold : FontWeight.normal)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSortBar() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(0, 4, 0, 8),
+      child: Row(
+        children: [
+          _buildSortChip('Новые', _SignalSort.newest, Icons.access_time),
+          const SizedBox(width: 6),
+          _buildSortChip('Пара', _SignalSort.pair, Icons.sort_by_alpha),
+          const SizedBox(width: 6),
+          _buildSortChip('P&L', _SignalSort.pnl, Icons.trending_up),
+        ],
+      ),
+    );
   }
 
   @override
@@ -1125,11 +1198,15 @@ class _SignalsTabState extends State<SignalsTab> {
         ],
       );
     }
+    final sorted = _sortedSignals;
     return ListView.builder(
       physics: const AlwaysScrollableScrollPhysics(),
       padding: const EdgeInsets.all(8),
-      itemCount: _signals.length,
-      itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i]),
+      itemCount: sorted.length + 1,
+      itemBuilder: (ctx, i) {
+        if (i == 0) return _buildSortBar();
+        return _SignalCard(signal: sorted[i - 1]);
+      },
     );
   }
 }
