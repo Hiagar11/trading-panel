@@ -14,9 +14,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 50;
+const int kCurrentBuild = 51;
 const String kCurrentVersion = '1.5.8';
-const String kApiBase = 'http://85.192.38.213:8766';
+const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
 const kBg = Color(0xFF080808);
@@ -84,7 +84,7 @@ class TradingWsService {
 
   Future<void> _doConnect() async {
     try {
-      _ws = await WebSocket.connect('ws://85.192.38.213:8766/ws');
+      _ws = await WebSocket.connect('wss://85.192.38.213:8766/ws');
       _reconnectAttempts = 0;
       _startPingTimer();
       _ws!.listen(
@@ -635,7 +635,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
       // Стриминговый download с отображением прогресса
       final client = http.Client();
-      final request = http.Request('GET', Uri.parse('http://85.192.38.213:8766/download/apk'));
+      final request = http.Request('GET', Uri.parse('https://85.192.38.213:8766/download/apk'));
       final response = await client.send(request);
       final bytes = <int>[];
       int received = 0;
