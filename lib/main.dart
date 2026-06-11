@@ -15,8 +15,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 58;
-const String kCurrentVersion = '1.5.8';
+const int kCurrentBuild = 59;
+const String kCurrentVersion = '1.5.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -2713,6 +2713,99 @@ class _SparkPainter extends CustomPainter {
 }
 
 // ─── Balance Card ─────────────────────────────────────────────────────────────
+// ─── P&L Summary Card ─────────────────────────────────────────────────────────
+class _PnlSummaryCard extends StatefulWidget {
+  const _PnlSummaryCard();
+
+  @override
+  State<_PnlSummaryCard> createState() => _PnlSummaryCardState();
+}
+
+class _PnlSummaryCardState extends State<_PnlSummaryCard> {
+  double _dailyPnl = 0;
+  double _winRate = 0;
+  String? _bestPair;
+  double _bestPnl = 0;
+  bool _loaded = false;
+  Timer? _refreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+    _refreshTimer = Timer.periodic(const Duration(minutes: 2), (_) => _fetch());
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetch() async {
+    final data = await apiGet('/stats/daily');
+    if (data != null && mounted) {
+      setState(() {
+        _dailyPnl = (data['daily_pnl'] as num?)?.toDouble() ?? 0;
+        _winRate = (data['win_rate'] as num?)?.toDouble() ?? 0;
+        _bestPair = data['best_pair'] as String?;
+        _bestPnl = (data['best_pnl'] as num?)?.toDouble() ?? 0;
+        _loaded = true;
+      });
+    }
+  }
+
+  Widget _chip(String label, String value, Color color) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: color.withOpacity(0.35)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(value,
+                style: TextStyle(
+                    color: color,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold)),
+            const SizedBox(height: 2),
+            Text(label,
+                style: const TextStyle(color: kDim, fontSize: 10)),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    if (!_loaded) return const SizedBox.shrink();
+    final pnlColor = _dailyPnl >= 0 ? kGreen : kRed;
+    final pnlStr =
+        '${_dailyPnl >= 0 ? '+' : ''}\$${_dailyPnl.toStringAsFixed(2)}';
+    final winStr = '${_winRate.toStringAsFixed(1)}%';
+    final bestStr =
+        _bestPair != null ? '$_bestPair +\$${_bestPnl.toStringAsFixed(2)}' : '—';
+    return Container(
+      margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: kDim.withOpacity(0.25)),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceAround,
+        children: [
+          _chip('P&L сегодня', pnlStr, pnlColor),
+          _chip('Win rate', winStr, _winRate >= 50 ? kGreen : kRed),
+          _chip('Лучший', bestStr, kGold),
+        ],
+      ),
+    );
+  }
+}
+
 class _BalanceCard extends StatelessWidget {
   final double balance;
   const _BalanceCard({required this.balance});
@@ -2951,6 +3044,7 @@ class _ChannelsTabState extends State<ChannelsTab> {
       body: Column(
         children: [
           _BalanceCard(balance: widget.balance),
+          const _PnlSummaryCard(),
           Expanded(
             child: RefreshIndicator(
               color: kGold,
