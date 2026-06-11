@@ -16,11 +16,12 @@ import 'package:permission_handler/permission_handler.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:fl_chart/fl_chart.dart';
+import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 74;
-const String kCurrentVersion = '1.6.4';
+const int kCurrentBuild = 84;
+const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
@@ -107,7 +108,7 @@ Future<void> _saveThemeCustom(int accentIdx, int cardIdx, bool gridView) async {
 // ─── UI Mode ──────────────────────────────────────────────────────────────────
 enum UiMode { basic, advanced }
 
-final _uiMode = ValueNotifier<UiMode>(UiMode.basic);
+final _uiMode = ValueNotifier<UiMode>(UiMode.advanced);
 
 Future<void> _loadUiMode() async {
   final prefs = await SharedPreferences.getInstance();
@@ -325,11 +326,7 @@ void _onNotificationTap(NotificationResponse response) async {
   }
   // Handle both tap on notification body and 'install_now' action button
   if (response.actionId == 'install_now' || response.actionId == null) {
-    try {
-      await _installChannel.invokeMethod('installApk', {'path': payload});
-    } catch (e) {
-      debugPrint('Install error: $e');
-    }
+    await OpenFile.open(payload);
   }
 }
 
@@ -545,6 +542,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _watcherAlive = false;
   double _balance = 0;
   int _openPositions = 0;
+  int _selectedTab = 0;
   Timer? _statusTimer;
   Timer? _checkUpdateTimer;
   Timer? _healthTimer;
@@ -552,6 +550,9 @@ class _HomeScreenState extends State<HomeScreen> {
   double _downloadProgress = 0.0;
   String _latestVersion = kCurrentVersion;
   bool _updateInProgress = false;
+  bool _updateAvailable = false;
+  bool _updateInstalled = false;
+  int _availableBuild = 0;
   bool _botHealthy = false;
   int _lastSignalSecondsAgo = -1;
 
@@ -620,25 +621,11 @@ class _HomeScreenState extends State<HomeScreen> {
       _watcherAlive = snap.watcherAlive;
       _openPositions = snap.openPositions;
     });
-    if (snap.newBuild != null && !_updateInProgress) {
-      _updateInProgress = true;
-      _notificationsPlugin.show(
-        99,
-        'Доступно обновление',
-        'Версия ${snap.newBuild} готова к установке. Нажми чтобы загрузить.',
-        const NotificationDetails(
-          android: AndroidNotificationDetails(
-            'update_channel',
-            'Обновления',
-            channelDescription: 'Уведомления об обновлениях приложения',
-            importance: Importance.max,
-            priority: Priority.high,
-            icon: '@mipmap/ic_launcher',
-          ),
-        ),
-        payload: 'do_update',
-      );
-      _downloadAndInstall('');
+    if (snap.newBuild != null && !_updateInProgress && !_updateInstalled) {
+      final build = snap.newBuild!;
+      if (build > kCurrentBuild && !_updateAvailable) {
+        setState(() { _updateAvailable = true; _availableBuild = build; });
+      }
     }
   }
 
@@ -658,25 +645,8 @@ class _HomeScreenState extends State<HomeScreen> {
       });
       if (data['build'] != null) {
         final serverBuild = data['build'] as int;
-        if (serverBuild > kCurrentBuild && !_updateInProgress) {
-          _updateInProgress = true;
-          _notificationsPlugin.show(
-            99,
-            'Доступно обновление',
-            'Версия $serverBuild готова к установке.',
-            const NotificationDetails(
-              android: AndroidNotificationDetails(
-                'update_channel',
-                'Обновления',
-                channelDescription: 'Уведомления об обновлениях',
-                importance: Importance.max,
-                priority: Priority.high,
-                icon: '@mipmap/ic_launcher',
-              ),
-            ),
-            payload: 'do_update',
-          );
-          _downloadAndInstall('');
+        if (serverBuild > kCurrentBuild && !_updateInProgress && !_updateInstalled && !_updateAvailable) {
+          setState(() { _updateAvailable = true; _availableBuild = serverBuild; });
         }
       }
     }
@@ -694,15 +664,9 @@ class _HomeScreenState extends State<HomeScreen> {
         final parts = tag.split('+');
         if (parts.length == 2) {
           final remoteBuild = int.tryParse(parts[1]) ?? 0;
-          if (remoteBuild > kCurrentBuild && mounted) {
-            _latestVersion = parts[0]; // save version string (e.g. "1.4.7")
-            final assets = data['assets'] as List?;
-            if (assets != null && assets.isNotEmpty) {
-              final url = assets[0]['browser_download_url'] as String?;
-              if (url != null) {
-                _showUpdateDialog(tag, url);
-              }
-            }
+          if (remoteBuild > kCurrentBuild && mounted && !_updateInstalled && !_updateAvailable) {
+            _latestVersion = parts[0];
+            setState(() { _updateAvailable = true; _availableBuild = remoteBuild; });
           }
         }
       }
@@ -774,16 +738,15 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
     );
 
+    bool installLaunched = false;
     try {
       // Использовать временную директорию — FileProvider поддерживает cache-path
       final dir = await getTemporaryDirectory();
       final file = File('${dir.path}/trading_panel_update.apk');
 
-      // Стриминговый download с отображением прогресса
-      // Use plain HttpClient (system CAs) for GitHub — follows 302 redirects automatically
-      const apkUrl = 'https://github.com/Hiagar11/trading-panel/releases/latest/download/trading_panel.apk';
-      final ioClient = HttpClient();
-      final ioReq = await ioClient.getUrl(Uri.parse(apkUrl));
+      // Скачиваем с VPS напрямую (без redirect'ов GitHub)
+      final apkUri = Uri.parse('$kApiBase/download/apk');
+      final ioReq = await _secureDartIoClient!.getUrl(apkUri);
       final ioResp = await ioReq.close();
       final bytes = <int>[];
       int received = 0;
@@ -791,20 +754,27 @@ class _HomeScreenState extends State<HomeScreen> {
       await for (final chunk in ioResp) {
         bytes.addAll(chunk);
         received += chunk.length;
-        if (total > 0) setState(() => _downloadProgress = received / total);
+        if (total > 0 && mounted) setState(() => _downloadProgress = received / total);
       }
-      ioClient.close();
       await file.writeAsBytes(bytes);
 
       // Закрыть диалог
       nav.pop();
 
-      // Попытаться открыть установщик напрямую через FileProvider
-      try {
-        await _installChannel.invokeMethod('installApk', {'path': file.path});
-      } catch (e) {
-        // Fallback: системное уведомление
-        await _showInstallNotification(file.path);
+      // Открыть APK через open_file (ACTION_VIEW + MIME type, совместимо с Android 12+)
+      final result = await OpenFile.open(file.path);
+      if (result.type == ResultType.done) {
+        installLaunched = true;
+        _updateInstalled = true;
+        _updateAvailable = false;
+        _checkUpdateTimer?.cancel();
+        _checkUpdateTimer = null;
+      } else {
+        scaffoldMsg.showSnackBar(SnackBar(
+          content: Text('Ошибка установщика: ${result.message}'),
+          backgroundColor: Colors.red.shade900,
+          duration: const Duration(seconds: 10),
+        ));
       }
     } catch (e) {
       // Закрыть диалог если открыт
@@ -815,9 +785,9 @@ class _HomeScreenState extends State<HomeScreen> {
         duration: const Duration(seconds: 5),
       ));
     } finally {
-      // Всегда сбрасываем состояние, даже при исключении
-      setState(() => _downloadProgress = 0.0);
-      _updateInProgress = false;
+      if (mounted) setState(() => _downloadProgress = 0.0);
+      // Не сбрасываем флаг если установщик запущен — пусть app заменится
+      if (!installLaunched) _updateInProgress = false;
     }
   }
 
@@ -995,34 +965,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   )
                 : const SizedBox.shrink(),
           ),
-          ValueListenableBuilder<UiMode>(
-            valueListenable: _uiMode,
-            builder: (_, mode, __) => GestureDetector(
-              onTap: _toggleUiMode,
-              child: Container(
-                margin: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: mode == UiMode.advanced
-                      ? kGold.withOpacity(0.18)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: mode == UiMode.advanced ? kGold : kDim,
-                    width: 0.8,
-                  ),
-                ),
-                child: Text(
-                  mode == UiMode.basic ? 'BASIC' : 'ADV',
-                  style: TextStyle(
-                    color: mode == UiMode.advanced ? kGold : kDim,
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
-          ),
           IconButton(
             icon: const Icon(Icons.account_circle),
             onPressed: () => _showProfileSheet(),
@@ -1031,6 +973,36 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       body: Column(
         children: [
+          if (_updateAvailable && !_updateInProgress)
+            GestureDetector(
+              onTap: () {
+                setState(() { _updateAvailable = false; _updateInProgress = true; });
+                _downloadAndInstall('');
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                color: kGold.withOpacity(0.12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.system_update_alt, color: kGold, size: 18),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Обновление $_availableBuild доступно',
+                        style: const TextStyle(color: kGold, fontSize: 13),
+                      ),
+                    ),
+                    const Text('Установить',
+                        style: TextStyle(
+                            color: kGold,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13)),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.chevron_right, color: kGold, size: 18),
+                  ],
+                ),
+              ),
+            ),
           if (_downloadProgress > 0 && _downloadProgress < 1.0)
             LinearProgressIndicator(
               value: _downloadProgress,
@@ -1038,7 +1010,33 @@ class _HomeScreenState extends State<HomeScreen> {
               backgroundColor: Colors.grey[800],
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
             ),
-          Expanded(child: ChannelsTab(balance: _balance)),
+          Expanded(
+            child: IndexedStack(
+              index: _selectedTab,
+              children: [
+                ChannelsTab(balance: _balance),
+                const PositionsTab(),
+              ],
+            ),
+          ),
+        ],
+      ),
+      bottomNavigationBar: BottomNavigationBar(
+        currentIndex: _selectedTab,
+        onTap: (i) => setState(() => _selectedTab = i),
+        items: [
+          const BottomNavigationBarItem(
+            icon: Icon(Icons.view_list),
+            label: 'Каналы',
+          ),
+          BottomNavigationBarItem(
+            icon: Badge(
+              isLabelVisible: _openPositions > 0,
+              label: Text('$_openPositions'),
+              child: const Icon(Icons.show_chart),
+            ),
+            label: 'Позиции',
+          ),
         ],
       ),
     );
@@ -1075,25 +1073,33 @@ class _WatcherControlWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
+    return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        IconButton(
-          icon: Icon(
-            Icons.play_arrow,
-            color: alive ? kGold : kDim,
-          ),
-          onPressed: onPlay,
-          tooltip: 'Запустить наблюдение',
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(
+                Icons.play_arrow,
+                color: alive ? kGold : kDim,
+              ),
+              onPressed: onPlay,
+              tooltip: 'Запустить наблюдение',
+            ),
+            IconButton(
+              icon: Icon(
+                Icons.pause,
+                color: alive ? kDim : kGold,
+              ),
+              onPressed: onPause,
+              tooltip: 'Остановить наблюдение',
+            ),
+          ],
         ),
-        IconButton(
-          icon: Icon(
-            Icons.pause,
-            color: alive ? kDim : kGold,
-          ),
-          onPressed: onPause,
-          tooltip: 'Остановить наблюдение',
-        ),
+        if (!alive)
+          const Text('Новые сигналы на паузе',
+              style: TextStyle(color: kDim, fontSize: 11)),
       ],
     );
   }
@@ -1126,8 +1132,10 @@ class _ProfileSheetState extends State<ProfileSheet> {
   Future<void> _login(String userId) async {
     final pin = await _askPin(context);
     if (pin == null) return;
+    if (!mounted) return;
     setState(() => _loading = true);
     final resp = await apiPost('/users/$userId/login', {'pin': pin});
+    if (!mounted) return;
     setState(() => _loading = false);
     if (resp != null && resp['token'] != null) {
       final name = _users
@@ -1135,6 +1143,7 @@ class _ProfileSheetState extends State<ProfileSheet> {
               orElse: () => {'name': 'User'})['name']
           .toString();
       await SessionManager.save(resp['token'], userId, name);
+      if (!mounted) return;
       widget.onChanged();
     } else {
       _showToast('Неверный PIN');
@@ -1147,8 +1156,10 @@ class _ProfileSheetState extends State<ProfileSheet> {
       builder: (ctx) => const _CreateUserDialog(),
     );
     if (result == null) return;
+    if (!mounted) return;
     setState(() => _loading = true);
     final resp = await apiPost('/users', result);
+    if (!mounted) return;
     setState(() => _loading = false);
     if (resp != null) {
       _showToast('Профиль создан');
@@ -2317,8 +2328,6 @@ class _SignalCardState extends State<_SignalCard> {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  if (price != null)
-                    _InfoChip('Вход', price.toString(), Colors.white),
                   if (sl != null)
                     _InfoChip('SL', sl.toString(), kRed),
                   if (tp != null)
@@ -2561,8 +2570,7 @@ class _OutcomeBadge extends StatelessWidget {
       color = kRed;
       label = 'SL HIT ❌';
     } else {
-      color = kDim;
-      label = 'OPEN ⏳';
+      return const SizedBox.shrink();
     }
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
@@ -3218,8 +3226,9 @@ class _PnlSummaryCardState extends State<_PnlSummaryCard> {
     final pnlStr =
         '${_dailyPnl >= 0 ? '+' : ''}\$${_dailyPnl.toStringAsFixed(2)}';
     final winStr = '${_winRate.toStringAsFixed(1)}%';
-    final bestStr =
-        _bestPair != null ? '$_bestPair +\$${_bestPnl.toStringAsFixed(2)}' : '—';
+    final bestStr = _bestPair != null
+        ? '$_bestPair ${_bestPnl >= 0 ? '+' : ''}\$${_bestPnl.toStringAsFixed(2)}'
+        : '—';
     return Container(
       margin: const EdgeInsets.fromLTRB(8, 6, 8, 0),
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -3288,8 +3297,6 @@ class _ChannelsTabState extends State<ChannelsTab> {
   bool _isOwner = false;
   String? _lastSignalId;
   Timer? _signalTimer;
-  double? _dailyPnl;
-  int? _dailyTradeCount;
 
   @override
   void initState() {
@@ -3344,14 +3351,6 @@ class _ChannelsTabState extends State<ChannelsTab> {
       if (mounted) {
         setState(() => _isOwner = me?['is_owner'] == true);
       }
-      final stats = await apiGet('/stats/daily', auth: true);
-      if (mounted && stats != null) {
-        setState(() {
-          _dailyPnl = (stats['pnl'] as num?)?.toDouble() ??
-              (stats['daily_pnl'] as num?)?.toDouble();
-          _dailyTradeCount = (stats['trade_count'] as num?)?.toInt();
-        });
-      }
     }
     if (mounted) {
       setState(() {
@@ -3367,6 +3366,7 @@ class _ChannelsTabState extends State<ChannelsTab> {
       builder: (ctx) => const _AddChannelDialog(),
     );
     if (result == null) return;
+    if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -3501,9 +3501,9 @@ class _ChannelsTabState extends State<ChannelsTab> {
                       padding: const EdgeInsets.all(8),
                       itemCount: _channels.length,
                       itemBuilder: (ctx, i) => _ChannelCard(
+                        key: ValueKey(_channels[i]['id']),
                         channel: _channels[i],
                         isOwner: _isOwner,
-                        dailyPnl: _dailyPnl,
                         onDelete: () =>
                             _deleteChannel(_channels[i]['id'].toString()),
                         onToggle: () => _toggleChannel(
@@ -3528,111 +3528,216 @@ class _ChannelsTabState extends State<ChannelsTab> {
   }
 }
 
-class _ChannelCard extends StatelessWidget {
+class _ChannelCard extends StatefulWidget {
   final dynamic channel;
   final bool isOwner;
   final VoidCallback onDelete;
   final VoidCallback onToggle;
   final VoidCallback onAnalyze;
-  final double? dailyPnl;
-
   const _ChannelCard({
+    super.key,
     required this.channel,
     required this.isOwner,
     required this.onDelete,
     required this.onToggle,
     required this.onAnalyze,
-    this.dailyPnl,
   });
+
+  @override
+  State<_ChannelCard> createState() => _ChannelCardState();
+}
+
+class _ChannelCardState extends State<_ChannelCard> {
+  bool _expanded = false;
+  List<dynamic> _positions = [];
+  Timer? _posTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetchPositions();
+    _posTimer = Timer.periodic(const Duration(seconds: 10), (_) => _fetchPositions());
+  }
+
+  @override
+  void dispose() {
+    _posTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchPositions() async {
+    final data = await apiGetList('/positions');
+    if (mounted) {
+      setState(() => _positions = data ?? []);
+    }
+  }
+
+  Future<void> _closePosition(dynamic pos) async {
+    final p = pos is Map<String, dynamic> ? pos : <String, dynamic>{};
+    final id = p['id']?.toString() ?? p['order_id']?.toString();
+    if (id == null) return;
+    await apiDelete('/positions/$id', auth: true);
+    if (!mounted) return;
+    _fetchPositions();
+  }
 
   @override
   Widget build(BuildContext context) {
     final Map<String, dynamic> c =
-        channel is Map<String, dynamic> ? channel : {};
+        widget.channel is Map<String, dynamic> ? widget.channel as Map<String, dynamic> : {};
     final name = c['name'] ?? c['title'] ?? '—';
     final active = c['active'] == true;
-    final pnl = (c['daily_pnl'] as num?)?.toDouble() ?? dailyPnl;
+    final pnl = (c['daily_pnl'] as num?)?.toDouble();
+    final hasPositions = _positions.isNotEmpty;
+    final totalPnl = _positions.fold<double>(0.0, (sum, p) {
+      final pos = p is Map<String, dynamic> ? p : <String, dynamic>{};
+      return sum + ((pos['pnl'] as num?)?.toDouble() ?? 0.0);
+    });
 
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
-      child: InkWell(
-        onTap: () => _showChannelStats(context, c['id'].toString(), name.toString()),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Header row — tap opens stats sheet ────────────────────────────
+          InkWell(
+            onTap: () => _showChannelStats(context, c['id'].toString(), name.toString()),
+            child: Padding(
+              padding: EdgeInsets.fromLTRB(12, 12, 12, hasPositions ? 4 : 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 8,
-                    height: 8,
-                    decoration: BoxDecoration(
-                      color: active ? kGreen : kDim,
-                      shape: BoxShape.circle,
-                    ),
+                  Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: active ? kGreen : kDim,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(name.toString(),
+                            style: const TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold)),
+                      ),
+                      if (widget.isOwner)
+                        ValueListenableBuilder<UiMode>(
+                          valueListenable: _uiMode,
+                          builder: (_, mode, __) => mode == UiMode.advanced
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    IconButton(
+                                      icon: Icon(
+                                          active
+                                              ? Icons.pause_circle
+                                              : Icons.play_circle,
+                                          color: kGold,
+                                          size: 20),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      onPressed: widget.onToggle,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      icon: const Icon(Icons.analytics_outlined,
+                                          color: kDim, size: 20),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      onPressed: widget.onAnalyze,
+                                    ),
+                                    const SizedBox(width: 8),
+                                    IconButton(
+                                      icon: const Icon(Icons.delete_outline,
+                                          color: kRed, size: 20),
+                                      padding: EdgeInsets.zero,
+                                      constraints: const BoxConstraints(),
+                                      onPressed: widget.onDelete,
+                                    ),
+                                  ],
+                                )
+                              : const SizedBox.shrink(),
+                        ),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(name.toString(),
-                        style: const TextStyle(
-                            color: Colors.white,
-                            fontWeight: FontWeight.bold)),
-                  ),
-                  if (isOwner)
-                    ValueListenableBuilder<UiMode>(
-                      valueListenable: _uiMode,
-                      builder: (_, mode, __) => mode == UiMode.advanced
-                          ? Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                IconButton(
-                                  icon: Icon(
-                                      active
-                                          ? Icons.pause_circle
-                                          : Icons.play_circle,
-                                      color: kGold,
-                                      size: 20),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                  onPressed: onToggle,
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.analytics_outlined,
-                                      color: kDim, size: 20),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                  onPressed: onAnalyze,
-                                ),
-                                const SizedBox(width: 8),
-                                IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: kRed, size: 20),
-                                  padding: EdgeInsets.zero,
-                                  constraints: const BoxConstraints(),
-                                  onPressed: onDelete,
-                                ),
-                              ],
-                            )
-                          : const SizedBox.shrink(),
+                  if (pnl != null) ...[
+                    const SizedBox(height: 6),
+                    Text(
+                      'P&L сегодня: ${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
+                      style: TextStyle(
+                          color: pnl >= 0 ? kGreen : kRed, fontSize: 12),
                     ),
+                  ],
+                  if (!hasPositions) ...[
+                    const SizedBox(height: 4),
+                    const Text('Нажмите для статистики канала',
+                        style: TextStyle(color: kDim, fontSize: 11)),
+                  ],
                 ],
               ),
-              if (pnl != null) ...[
-                const SizedBox(height: 6),
-                Text(
-                  'P&L сегодня: ${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
-                  style: TextStyle(
-                      color: pnl >= 0 ? kGreen : kRed, fontSize: 12),
-                ),
-              ],
-              const SizedBox(height: 4),
-              const Text('Нажмите для статистики канала',
-                  style: TextStyle(color: kDim, fontSize: 11)),
-            ],
+            ),
           ),
-        ),
+          // ── Accordion row — visible only when there are active positions ──
+          if (hasPositions) ...[
+            const Divider(height: 1, color: Color(0xFF252525)),
+            InkWell(
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      _expanded ? Icons.expand_less : Icons.expand_more,
+                      color: kGold,
+                      size: 18,
+                    ),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Активные сделки: ${_positions.length}',
+                      style: const TextStyle(color: kDim, fontSize: 12),
+                    ),
+                    const Spacer(),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: (totalPnl >= 0 ? kGreen : kRed).withOpacity(0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: (totalPnl >= 0 ? kGreen : kRed).withOpacity(0.4),
+                          width: 0.5,
+                        ),
+                      ),
+                      child: Text(
+                        '${totalPnl >= 0 ? '+' : ''}\$${totalPnl.toStringAsFixed(2)}',
+                        style: TextStyle(
+                          color: totalPnl >= 0 ? kGreen : kRed,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            if (_expanded)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                child: Column(
+                  children: _positions
+                      .map((pos) => _PositionCard(
+                            position: pos,
+                            onClose: () => _closePosition(pos),
+                          ))
+                      .toList(),
+                ),
+              ),
+          ],
+        ],
       ),
     );
   }
@@ -3658,20 +3763,37 @@ class _ChannelStatsSheet extends StatefulWidget {
 
 class _ChannelStatsSheetState extends State<_ChannelStatsSheet> {
   Map<String, dynamic>? _stats;
+  List<dynamic> _positions = [];
   bool _loading = true;
+  Timer? _posTimer;
 
   @override
   void initState() {
     super.initState();
     _fetch();
+    _posTimer = Timer.periodic(const Duration(seconds: 15), (_) => _fetchPositions());
+  }
+
+  @override
+  void dispose() {
+    _posTimer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _fetchPositions() async {
+    final data = await apiGetList('/positions', auth: true);
+    if (mounted && data != null) setState(() => _positions = data);
   }
 
   Future<void> _fetch() async {
-    final data = await apiGet(
-        '/stats/channel?name=${Uri.encodeComponent(widget.channelName)}');
+    final results = await Future.wait([
+      apiGet('/stats/channel?name=${Uri.encodeComponent(widget.channelName)}'),
+      apiGetList('/positions', auth: true),
+    ]);
     if (mounted) {
       setState(() {
-        _stats = data;
+        _stats = results[0] as Map<String, dynamic>?;
+        _positions = (results[1] as List<dynamic>?) ?? [];
         _loading = false;
       });
     }
@@ -3681,9 +3803,9 @@ class _ChannelStatsSheetState extends State<_ChannelStatsSheet> {
   Widget build(BuildContext context) {
     final s = _stats;
     return DraggableScrollableSheet(
-      initialChildSize: 0.55,
+      initialChildSize: 0.65,
       minChildSize: 0.35,
-      maxChildSize: 0.85,
+      maxChildSize: 0.92,
       builder: (_, sc) => Container(
         decoration: const BoxDecoration(
           color: kCard,
@@ -3712,38 +3834,8 @@ class _ChannelStatsSheetState extends State<_ChannelStatsSheet> {
             const SizedBox(height: 16),
             if (_loading)
               const Center(child: CircularProgressIndicator(color: kGold))
-            else if (s == null)
-              const Center(
-                  child: Text('Нет данных', style: TextStyle(color: kDim)))
             else ...[
-              Wrap(
-                spacing: 10,
-                runSpacing: 10,
-                children: [
-                  _StatChip('Сигналов',
-                      '${s['total_signals'] ?? 0}', kGold),
-                  _StatChip('Побед',
-                      '${s['wins'] ?? 0} / ${s['losses'] ?? 0}', kGreen),
-                  _StatChip('Win Rate',
-                      '${s['win_rate'] ?? 0}%',
-                      (s['win_rate'] as num? ?? 0) >= 50 ? kGreen : kRed),
-                  _StatChip('Avg P&L',
-                      '${(s['avg_pnl'] as num? ?? 0) >= 0 ? '+' : ''}\$${(s['avg_pnl'] as num? ?? 0).toStringAsFixed(2)}',
-                      (s['avg_pnl'] as num? ?? 0) >= 0 ? kGreen : kRed),
-                  _StatChip('Total P&L',
-                      '${(s['total_pnl'] as num? ?? 0) >= 0 ? '+' : ''}\$${(s['total_pnl'] as num? ?? 0).toStringAsFixed(2)}',
-                      (s['total_pnl'] as num? ?? 0) >= 0 ? kGreen : kRed),
-                  if (s['best_pair'] != null)
-                    _StatChip('Лучшая пара',
-                        '${s['best_pair']} +\$${(s['best_pair_pnl'] as num? ?? 0).toStringAsFixed(2)}',
-                        kGreen),
-                  if (s['worst_pair'] != null)
-                    _StatChip('Худшая пара',
-                        '${s['worst_pair']} \$${(s['worst_pair_pnl'] as num? ?? 0).toStringAsFixed(2)}',
-                        kRed),
-                ],
-              ),
-              const SizedBox(height: 20),
+              // ── История сигналов ──────────────────────────────────────
               OutlinedButton.icon(
                 onPressed: () {
                   Navigator.pop(context);
@@ -3764,6 +3856,79 @@ class _ChannelStatsSheetState extends State<_ChannelStatsSheet> {
                   minimumSize: const Size.fromHeight(44),
                 ),
               ),
+              // ── Активные сделки ───────────────────────────────────────
+              if (_positions.isNotEmpty) ...[
+                const SizedBox(height: 20),
+                Row(children: [
+                  const Icon(Icons.show_chart, color: kGold, size: 16),
+                  const SizedBox(width: 6),
+                  const Text('Активные сделки',
+                      style: TextStyle(
+                          color: kGold,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold)),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                    decoration: BoxDecoration(
+                      color: kGreen.withOpacity(0.15),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('${_positions.length}',
+                        style: const TextStyle(color: kGreen, fontSize: 11)),
+                  ),
+                ]),
+                const SizedBox(height: 8),
+                ..._positions.map((p) => Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: _PositionCard(
+                    position: p,
+                    onClose: () async {
+                      final id = p['id']?.toString();
+                      if (id != null) {
+                        await apiDelete('/positions/$id', auth: true);
+                        if (!mounted) return;
+                        _fetchPositions();
+                      }
+                    },
+                  ),
+                )),
+              ],
+              // ── Сводная статистика ─────────────────────────────────────
+              if (s != null) ...[
+                const SizedBox(height: 20),
+                const Text('Статистика',
+                    style: TextStyle(
+                        color: kDim, fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    _StatChip('Сигналов',
+                        '${s['total_signals'] ?? 0}', kGold),
+                    _StatChip('Побед',
+                        '${s['wins'] ?? 0} / ${s['losses'] ?? 0}', kGreen),
+                    _StatChip('Win Rate',
+                        '${s['win_rate'] ?? 0}%',
+                        (s['win_rate'] as num? ?? 0) >= 50 ? kGreen : kRed),
+                    _StatChip('Avg P&L',
+                        '${(s['avg_pnl'] as num? ?? 0) >= 0 ? '+' : ''}\$${(s['avg_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                        (s['avg_pnl'] as num? ?? 0) >= 0 ? kGreen : kRed),
+                    _StatChip('Total P&L',
+                        '${(s['total_pnl'] as num? ?? 0) >= 0 ? '+' : ''}\$${(s['total_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                        (s['total_pnl'] as num? ?? 0) >= 0 ? kGreen : kRed),
+                    if (s['best_pair'] != null)
+                      _StatChip('Лучшая пара',
+                          '${s['best_pair']} +\$${(s['best_pair_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                          kGreen),
+                    if (s['worst_pair'] != null)
+                      _StatChip('Худшая пара',
+                          '${s['worst_pair']} \$${(s['worst_pair_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                          kRed),
+                  ],
+                ),
+              ],
             ],
           ],
         ),

@@ -18,8 +18,12 @@ class MainActivity : FlutterActivity() {
             if (call.method == "installApk") {
                 val path = call.argument<String>("path")
                 if (path != null) {
-                    installApk(path)
-                    result.success(null)
+                    try {
+                        installApk(path)
+                        result.success(null)
+                    } catch (e: Exception) {
+                        result.error("INSTALL_FAILED", e.message, null)
+                    }
                 } else {
                     result.error("INVALID_PATH", "path is null", null)
                 }
