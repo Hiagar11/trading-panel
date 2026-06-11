@@ -14,18 +14,18 @@
 - [x] feature: implement ping/pong heartbeat on WebSocket to detect and warn on stale connections (prevent zombie connections)
 - [x] feature: use BehaviorSubject (rxdart) to decouple WebSocket connection logic from UI state (cleaner reactive architecture)
 - [x] debug: verify WSS (encrypted WebSocket) enabled for all connections; audit protocol security in production
+- [x] feature: add visual "Reconnecting… (attempt N)" status pill on connection stream (user transparency)
 - [ ] infra: setup self-signed or Let's Encrypt SSL certs for trading-bot API server (CRITICAL: all connections currently unencrypted)
 - [ ] infra: configure api_server.py to serve HTTPS + WSS with SSL certs (use uvicorn ssl_keyfile/ssl_certfile)
 - [ ] feature: update trading-panel kApiBase to use https:// and wss:// instead of http:// and ws://
-- [ ] feature: add visual "Reconnecting… (attempt N)" status pill on connection stream (user transparency)
 - [ ] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
 - [ ] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
 - [ ] debug: audit all timers and StreamSubscriptions for proper disposal in dispose() method (prevent memory bloat)
 - [ ] feature: add memory profiling stats to dev menu — show current heap usage, GC pressure (--profile mode support)
 - [ ] debug: ensure all transaction/order status messages display progress indicators (Material ProgressIndicator or Lottie)
 - [ ] feature: add dark mode customization panel — allow users to adjust accent colors, signal list contrast, grid/card view toggle
-- [ ] research: search web for "flutter crypto trading app ux improvements 2025" and add new ideas here
-- [ ] research: search web for "flutter android performance optimization tips" and add relevant ones
+- [x] research: search web for "flutter crypto trading app ux improvements 2025" and add new ideas here (subsumed by comprehensive research)
+- [x] research: search web for "flutter android performance optimization tips" and add relevant ones (subsumed by comprehensive research)
 
 ## IN PROGRESS
 (none)
@@ -41,6 +41,7 @@
 
 ## NIGHT LOG
 (each cycle appends one line: timestamp | action | result)
+- 08:18 UTC | research: COMPREHENSIVE BEST PRACTICES — verified research synthesis (3 angles: network resilience, crypto mobile UX, flutter memory leaks); mapped 10 actionable findings to TODO; marked dependent research tasks as subsumed | done | no-build
 - 23:30 UTC | debug: _checkNewSignals() edge cases — null guard on cast, empty id check, explicit toString on pair | done | build 41
 - 00:03 UTC | debug: WebSocket reconnect — added _pendingReconnect field, prevent duplicate reconnects, exponential backoff (5/10/30/60s), cancel on dispose | done | build 42
 - 05:35 UTC | debug: _downloadAndInstall storage/install permission — added REQUEST_INSTALL_PACKAGES check before download, moved cleanup to finally block | done | build 43
