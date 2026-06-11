@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 60;
+const int kCurrentBuild = 61;
 const String kCurrentVersion = '1.5.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -3276,14 +3276,7 @@ class _ChannelCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.symmetric(vertical: 4),
       child: InkWell(
-        onTap: () => Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (_) => ChannelSignalsScreen(
-                channelId: c['id'].toString(),
-                channelName: name.toString()),
-          ),
-        ),
+        onTap: () => _showChannelStats(context, c['id'].toString(), name.toString()),
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Column(
@@ -3355,11 +3348,177 @@ class _ChannelCard extends StatelessWidget {
                 ),
               ],
               const SizedBox(height: 4),
-              Text('Нажмите для истории сигналов',
-                  style: const TextStyle(color: kDim, fontSize: 11)),
+              const Text('Нажмите для статистики канала',
+                  style: TextStyle(color: kDim, fontSize: 11)),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+void _showChannelStats(BuildContext context, String channelId, String channelName) {
+  showModalBottomSheet(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => _ChannelStatsSheet(channelId: channelId, channelName: channelName),
+  );
+}
+
+class _ChannelStatsSheet extends StatefulWidget {
+  final String channelId;
+  final String channelName;
+  const _ChannelStatsSheet({required this.channelId, required this.channelName});
+
+  @override
+  State<_ChannelStatsSheet> createState() => _ChannelStatsSheetState();
+}
+
+class _ChannelStatsSheetState extends State<_ChannelStatsSheet> {
+  Map<String, dynamic>? _stats;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetch();
+  }
+
+  Future<void> _fetch() async {
+    final data = await apiGet(
+        '/stats/channel?name=${Uri.encodeComponent(widget.channelName)}');
+    if (mounted) {
+      setState(() {
+        _stats = data;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = _stats;
+    return DraggableScrollableSheet(
+      initialChildSize: 0.55,
+      minChildSize: 0.35,
+      maxChildSize: 0.85,
+      builder: (_, sc) => Container(
+        decoration: const BoxDecoration(
+          color: kCard,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: ListView(
+          controller: sc,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(widget.channelName,
+                      style: const TextStyle(
+                          color: kGold,
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold)),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: kDim),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+            const Divider(color: kDim, height: 1),
+            const SizedBox(height: 16),
+            if (_loading)
+              const Center(child: CircularProgressIndicator(color: kGold))
+            else if (s == null)
+              const Center(
+                  child: Text('Нет данных', style: TextStyle(color: kDim)))
+            else ...[
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  _StatChip('Сигналов',
+                      '${s['total_signals'] ?? 0}', kGold),
+                  _StatChip('Побед',
+                      '${s['wins'] ?? 0} / ${s['losses'] ?? 0}', kGreen),
+                  _StatChip('Win Rate',
+                      '${s['win_rate'] ?? 0}%',
+                      (s['win_rate'] as num? ?? 0) >= 50 ? kGreen : kRed),
+                  _StatChip('Avg P&L',
+                      '${(s['avg_pnl'] as num? ?? 0) >= 0 ? '+' : ''}\$${(s['avg_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                      (s['avg_pnl'] as num? ?? 0) >= 0 ? kGreen : kRed),
+                  _StatChip('Total P&L',
+                      '${(s['total_pnl'] as num? ?? 0) >= 0 ? '+' : ''}\$${(s['total_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                      (s['total_pnl'] as num? ?? 0) >= 0 ? kGreen : kRed),
+                  if (s['best_pair'] != null)
+                    _StatChip('Лучшая пара',
+                        '${s['best_pair']} +\$${(s['best_pair_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                        kGreen),
+                  if (s['worst_pair'] != null)
+                    _StatChip('Худшая пара',
+                        '${s['worst_pair']} \$${(s['worst_pair_pnl'] as num? ?? 0).toStringAsFixed(2)}',
+                        kRed),
+                ],
+              ),
+              const SizedBox(height: 20),
+              OutlinedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => ChannelSignalsScreen(
+                          channelId: widget.channelId,
+                          channelName: widget.channelName),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.list_alt, color: kGold),
+                label: const Text('История сигналов',
+                    style: TextStyle(color: kGold)),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(color: kGold),
+                  minimumSize: const Size.fromHeight(44),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _StatChip extends StatelessWidget {
+  final String label;
+  final String value;
+  final Color color;
+  const _StatChip(this.label, this.value, this.color);
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.35)),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(value,
+              style: TextStyle(
+                  color: color,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          Text(label,
+              style: const TextStyle(color: kDim, fontSize: 10)),
+        ],
       ),
     );
   }

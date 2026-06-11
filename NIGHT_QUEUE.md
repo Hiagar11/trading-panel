@@ -33,7 +33,7 @@
 - [~] SKIP: Let's Encrypt cert via certbot — certbot unavailable on system; self-signed RSA-4096 cert already in place (key.pem+cert.pem from 08:34 UTC), api_server.py already configured with ssl_keyfile/ssl_certfile
 - [~] SKIP: FCM push notifications — google-services.json not found in android/app/; FCM requires Firebase Console credentials to configure
 - [x] feature: P&L summary card on home screen — total realized P&L (sum of closed positions), win rate %, best/worst trade of the day
-- [ ] feature: signal detail sheet — tap signal card opens bottom sheet with full details: entry/TP/SL levels, chart context, time elapsed, notes from channel
+- [x] feature: signal detail sheet — tap signal card opens bottom sheet with full details: entry/TP/SL levels, chart context, time elapsed, notes from channel
 - [ ] feature: channel performance stats — per-channel win rate, avg P&L, total signals, best/worst pair; tap channel name to open stats sheet
 - [ ] debug: audit api_server.py endpoints — check all endpoints return correct status codes, add /health returning {status, uptime, open_positions_count, last_signal_ts}; verify /funding and /ws behave correctly under HTTPS
 - [ ] feature: swipe-to-dismiss on signal cards — swipe left to archive/hide signal, with undo snackbar (5s)
@@ -80,6 +80,7 @@
 - 09:55 UTC | infra: Let's Encrypt cert via certbot — checked system, certbot not available; verified self-signed cert already configured (key.pem+cert.pem from 08:34 UTC), api_server.py already has ssl_keyfile/ssl_certfile params | skip | no-build
 - 09:56 UTC | feature: FCM push notifications — google-services.json not found; cannot configure FCM without Firebase credentials | skip | no-build
 - 10:00 UTC | feature: P&L summary card on home screen — _PnlSummaryCard widget with 3 chips (daily P&L, win rate, best pair), /stats/daily enhanced with win_rate+best_pair+best_pnl fields, graceful zeros if events.jsonl missing | done | build 59
+- 10:09 UTC | feature: signal detail sheet — onTap on _SignalCard opens DraggableScrollableSheet (60%/92%); shows pair, direction badge, outcome badge, entry/TP/SL, time elapsed, date, channel name, extra JSON fields; close button top-right | done | build 60
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
