@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -14,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 53;
+const int kCurrentBuild = 54;
 const String kCurrentVersion = '1.5.8';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -755,7 +756,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('TRADING PANEL v$kCurrentVersion'),
+        title: GestureDetector(
+          onLongPress: _showDevMenu,
+          child: const Text('TRADING PANEL v$kCurrentVersion'),
+        ),
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 4),
@@ -878,6 +882,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ],
       ),
     );
+  }
+
+  void _showDevMenu() {
+    showDialog(context: context, builder: (_) => const _DevMenuDialog());
   }
 
   void _showProfileSheet() {
@@ -1073,6 +1081,127 @@ class _ProfileSheetState extends State<ProfileSheet> {
           ],
         ],
       ),
+    );
+  }
+}
+
+// ─── Dev Menu Dialog ──────────────────────────────────────────────────────────
+class _DevMenuDialog extends StatefulWidget {
+  const _DevMenuDialog();
+  @override
+  State<_DevMenuDialog> createState() => _DevMenuDialogState();
+}
+
+class _DevMenuDialogState extends State<_DevMenuDialog> {
+  Timer? _refreshTimer;
+  int _rssBytes = 0;
+  int _maxRssBytes = 0;
+  int _refreshCount = 0;
+  int _prevRss = 0;
+  double _gcPressure = 0.0;
+
+  @override
+  void initState() {
+    super.initState();
+    _prevRss = ProcessInfo.currentRss;
+    _refresh();
+    _refreshTimer = Timer.periodic(const Duration(seconds: 2), (_) => _refresh());
+  }
+
+  void _refresh() {
+    if (!mounted) return;
+    final cur = ProcessInfo.currentRss;
+    final max = ProcessInfo.maxRss;
+    // GC pressure: estimate by how much RSS dropped vs peak (higher = more GC activity)
+    final dropped = _prevRss > cur ? _prevRss - cur : 0;
+    final pressure = max > 0 ? (dropped / max * 100.0).clamp(0.0, 100.0) : 0.0;
+    setState(() {
+      _rssBytes = cur;
+      _maxRssBytes = max;
+      _gcPressure = pressure;
+      _prevRss = cur;
+      _refreshCount++;
+    });
+  }
+
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    super.dispose();
+  }
+
+  String _fmtBytes(int bytes) {
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(2)} GB';
+  }
+
+  Widget _row(String label, String value, {Color? valueColor}) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 3),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(label, style: const TextStyle(color: kDim, fontSize: 13)),
+            Text(value,
+                style: TextStyle(
+                    color: valueColor ?? Colors.white, fontSize: 13)),
+          ],
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final pressureColor = _gcPressure > 20
+        ? kRed
+        : _gcPressure > 5
+            ? Colors.amber
+            : kGreen;
+    return AlertDialog(
+      backgroundColor: kCard,
+      title: Row(
+        children: [
+          const Icon(Icons.memory, color: kGold, size: 18),
+          const SizedBox(width: 8),
+          const Text('Dev Menu', style: TextStyle(color: kGold, fontSize: 16)),
+        ],
+      ),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _row('Build', '#$kCurrentBuild'),
+          _row('Version', kCurrentVersion),
+          const Divider(color: kDim, height: 16),
+          const Text('Memory (RSS)',
+              style: TextStyle(color: kGold, fontSize: 11, letterSpacing: 0.8)),
+          const SizedBox(height: 4),
+          _row('Current RSS', _fmtBytes(_rssBytes)),
+          _row('Peak RSS', _fmtBytes(_maxRssBytes)),
+          _row('GC Pressure', '${_gcPressure.toStringAsFixed(1)}%',
+              valueColor: pressureColor),
+          const SizedBox(height: 4),
+          Text('Refreshed $_refreshCount× (every 2s)',
+              style: const TextStyle(color: kDim, fontSize: 10)),
+          const SizedBox(height: 4),
+          Text('Note: --profile mode adds heap timeline in DevTools',
+              style: const TextStyle(color: kDim, fontSize: 10)),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () {
+            // Post a timeline event visible in --profile DevTools
+            developer.Timeline.startSync('manual_gc_hint');
+            developer.Timeline.finishSync();
+            _refresh();
+          },
+          child: const Text('Refresh', style: TextStyle(color: kDim)),
+        ),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close', style: TextStyle(color: kGold)),
+        ),
+      ],
     );
   }
 }

@@ -19,7 +19,7 @@
 - [x] infra: configure api_server.py to serve HTTPS + WSS with SSL certs (use uvicorn ssl_keyfile/ssl_certfile)
 - [x] feature: update trading-panel kApiBase to use https:// and wss:// instead of http:// and ws://
 - [x] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
-- [ ] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
+- [x] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
 - [x] debug: audit all timers and StreamSubscriptions for proper disposal in dispose() method (prevent memory bloat)
 - [ ] feature: add memory profiling stats to dev menu — show current heap usage, GC pressure (--profile mode support)
 - [ ] debug: ensure all transaction/order status messages display progress indicators (Material ProgressIndicator or Lottie)
@@ -59,6 +59,7 @@
 - 08:35 UTC | infra: configure api_server.py HTTPS+WSS — added ssl_keyfile/ssl_certfile params to uvicorn.run() call, WebSocket endpoint auto-upgrades to WSS | done | no-build
 - 08:38 UTC | feature: update kApiBase to https/wss — changed kApiBase http://→https://, WebSocket ws://→wss://, download URL http://→https:// | done | build 51
 - 08:47 UTC | feature: tiered UI mode toggle (Basic/Advanced) — _uiMode ValueNotifier+SharedPreferences, BASIC/ADV chip in AppBar; Basic hides watcher controls, channel owner actions, position close button | done | build 52
+- 08:58 UTC | feature: robust search/filter on signals list — text search by pair, direction filter (ALL/LONG/SHORT), status filter (ALL/TP/SL/OPEN), time range filter (ALL/1h/24h/7d), filter panel toggle with active-state indicator dot, "no matches" empty state | done | build 53
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
