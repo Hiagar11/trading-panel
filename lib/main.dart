@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:developer' as developer;
 import 'dart:io';
 
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -16,7 +18,7 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 63;
+const int kCurrentBuild = 64;
 const String kCurrentVersion = '1.5.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -302,9 +304,16 @@ void _onNotificationTap(NotificationResponse response) async {
   }
 }
 
+@pragma('vm:entry-point')
+Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  await Firebase.initializeApp();
+}
+
 // ─── App entry ───────────────────────────────────────────────────────────────
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp();
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   await initNotifications(onTap: _onNotificationTap);
   runApp(const TradingPanelApp());
 }
@@ -540,6 +549,37 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkUpdateTimer = Timer.periodic(const Duration(minutes: 5), (_) => _checkUpdate());
     _fetchHealth();
     _healthTimer = Timer.periodic(const Duration(seconds: 60), (_) => _fetchHealth());
+    _setupFCM();
+  }
+
+  Future<void> _setupFCM() async {
+    final messaging = FirebaseMessaging.instance;
+    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    final token = await messaging.getToken();
+    debugPrint('FCM Token: $token');
+    if (token != null) {
+      try {
+        await http.post(
+          Uri.parse('$kApiBase/fcm/register'),
+          headers: {'Content-Type': 'application/json'},
+          body: jsonEncode({'token': token, 'platform': 'android'}),
+        );
+      } catch (e) {
+        debugPrint('FCM register error: $e');
+      }
+    }
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      final notification = message.notification;
+      if (notification != null) {
+        showSignalNotification(
+          notification.title ?? 'Новый сигнал',
+          notification.body ?? '',
+        );
+      }
+    });
+    FirebaseMessaging.onMessageOpenedApp.listen((RemoteMessage message) {
+      debugPrint('Notification tapped: ${message.data}');
+    });
   }
 
   void _onWsSnapshot(WsSnapshot snap) {
