@@ -18,8 +18,8 @@ import 'package:fl_chart/fl_chart.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 64;
-const String kCurrentVersion = '1.5.9';
+const int kCurrentBuild = 66;
+const String kCurrentVersion = '1.6.0';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
 
