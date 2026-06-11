@@ -34,8 +34,8 @@
 - [~] SKIP: FCM push notifications — google-services.json not found in android/app/; FCM requires Firebase Console credentials to configure
 - [x] feature: P&L summary card on home screen — total realized P&L (sum of closed positions), win rate %, best/worst trade of the day
 - [x] feature: signal detail sheet — tap signal card opens bottom sheet with full details: entry/TP/SL levels, chart context, time elapsed, notes from channel
-- [ ] feature: channel performance stats — per-channel win rate, avg P&L, total signals, best/worst pair; tap channel name to open stats sheet
-- [ ] debug: audit api_server.py endpoints — check all endpoints return correct status codes, add /health returning {status, uptime, open_positions_count, last_signal_ts}; verify /funding and /ws behave correctly under HTTPS
+- [x] feature: channel performance stats — per-channel win rate, avg P&L, total signals, best/worst pair; tap channel name to open stats sheet
+- [x] debug: audit api_server.py endpoints — check all endpoints return correct status codes, add /health returning {status, uptime, open_positions_count, last_signal_ts}; verify /funding and /ws behave correctly under HTTPS
 - [ ] feature: swipe-to-dismiss on signal cards — swipe left to archive/hide signal, with undo snackbar (5s)
 - [ ] feature: portfolio donut chart — breakdown of open positions by pair, shown on Positions tab header
 
@@ -81,6 +81,8 @@
 - 09:56 UTC | feature: FCM push notifications — google-services.json not found; cannot configure FCM without Firebase credentials | skip | no-build
 - 10:00 UTC | feature: P&L summary card on home screen — _PnlSummaryCard widget with 3 chips (daily P&L, win rate, best pair), /stats/daily enhanced with win_rate+best_pair+best_pnl fields, graceful zeros if events.jsonl missing | done | build 59
 - 10:09 UTC | feature: signal detail sheet — onTap on _SignalCard opens DraggableScrollableSheet (60%/92%); shows pair, direction badge, outcome badge, entry/TP/SL, time elapsed, date, channel name, extra JSON fields; close button top-right | done | build 60
+- 10:16 UTC | feature: channel performance stats — /stats/channel?name= endpoint on api_server.py; _ChannelCard onTap now opens _ChannelStatsSheet with stat chips (signals, wins/losses, win rate, avg P&L, total P&L, best/worst pair); "История сигналов" button navigates to ChannelSignalsScreen | done | build 61
+- 10:21 UTC | debug: audit api_server.py endpoints — added _start_time=time.time() at module level; updated /health to return {status, uptime, open_positions_count, last_signal_ts, vps, last_signal_seconds_ago, mexc_ok}; verified all endpoints use correct 200/404/500/401/403/409 codes via FastAPI HTTPException pattern | done | no-build
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
