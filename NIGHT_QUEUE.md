@@ -16,7 +16,7 @@
 - [x] debug: verify WSS (encrypted WebSocket) enabled for all connections; audit protocol security in production
 - [x] feature: add visual "Reconnecting… (attempt N)" status pill on connection stream (user transparency)
 - [x] infra: setup self-signed or Let's Encrypt SSL certs for trading-bot API server (CRITICAL: all connections currently unencrypted)
-- [ ] infra: configure api_server.py to serve HTTPS + WSS with SSL certs (use uvicorn ssl_keyfile/ssl_certfile)
+- [x] infra: configure api_server.py to serve HTTPS + WSS with SSL certs (use uvicorn ssl_keyfile/ssl_certfile)
 - [ ] feature: update trading-panel kApiBase to use https:// and wss:// instead of http:// and ws://
 - [ ] feature: add tiered UI mode toggle (Basic/Advanced) — hide advanced order types/analytics for new traders
 - [ ] feature: implement robust search/filter on signal list (by pair, exchange, direction, time range, status)
@@ -56,6 +56,7 @@
 - 08:09 UTC | feature: BehaviorSubject WS service — added rxdart ^0.28.0, TradingWsService class with BehaviorSubject<WsSnapshot>, moved all WS/reconnect/ping-pong logic out of HomeScreenState into service; _HomeScreenState subscribes via StreamSubscription | done | build 50
 - 08:14 UTC | debug: audit protocol security — CRITICAL: all connections unencrypted (ws:// WS, http:// REST). No SSL/TLS setup found. Added 3 follow-up infra tasks for HTTPS+WSS | done | no-build
 - 08:34 UTC | infra: setup SSL certs — generated self-signed RSA-4096 cert (key.pem + cert.pem) in /home/glados/repos/trading-bot/, valid 365d, CN=trading-bot | done | no-build
+- 08:35 UTC | infra: configure api_server.py HTTPS+WSS — added ssl_keyfile/ssl_certfile params to uvicorn.run() call, WebSocket endpoint auto-upgrades to WSS | done | no-build
 
 ## MORNING SUMMARY
 **Date:** 2026-06-11 | **Night session:** ~23:30–05:35 UTC | **Builds shipped:** 41, 42, 43
