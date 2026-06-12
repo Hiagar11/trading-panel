@@ -21,7 +21,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 93;
+const int kCurrentBuild = 94;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -3791,7 +3791,8 @@ class _ChannelCardState extends State<ChannelCard> {
     final hasPositions = _positions.isNotEmpty;
     final totalPnl = _positions.fold<double>(0.0, (sum, p) {
       final pos = p is Map<String, dynamic> ? p : <String, dynamic>{};
-      return sum + ((pos['pnl'] as num?)?.toDouble() ?? 0.0);
+      return sum + ((pos['unrealized_pnl'] as num?)?.toDouble() ??
+          (pos['pnl'] as num?)?.toDouble() ?? 0.0);
     });
 
     return Card(
