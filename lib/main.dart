@@ -21,7 +21,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 91;
+const int kCurrentBuild = 92;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -547,6 +547,7 @@ class _HomeScreenState extends State<HomeScreen> {
   double _balance = 0;
   int _openPositions = 0;
   int _selectedTab = 0;
+  late final PageController _pageController = PageController();
   Timer? _statusTimer;
   Timer? _checkUpdateTimer;
   Timer? _healthTimer;
@@ -876,6 +877,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _healthTimer?.cancel();
     _wsSub?.cancel();
     _wsService.dispose();
+    _pageController.dispose();
     super.dispose();
   }
 
@@ -1015,8 +1017,9 @@ class _HomeScreenState extends State<HomeScreen> {
               valueColor: const AlwaysStoppedAnimation<Color>(Colors.amber),
             ),
           Expanded(
-            child: IndexedStack(
-              index: _selectedTab,
+            child: PageView(
+              controller: _pageController,
+              onPageChanged: (i) => setState(() => _selectedTab = i),
               children: [
                 ChannelsTab(balance: _balance),
                 const PositionsTab(),
@@ -1027,7 +1030,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       bottomNavigationBar: BottomNavigationBar(
         currentIndex: _selectedTab,
-        onTap: (i) => setState(() => _selectedTab = i),
+        onTap: (i) {
+          setState(() => _selectedTab = i);
+          _pageController.jumpToPage(i);
+        },
         items: [
           const BottomNavigationBarItem(
             icon: Icon(Icons.view_list),
