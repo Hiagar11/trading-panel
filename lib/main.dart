@@ -20,7 +20,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 85;
+const int kCurrentBuild = 86;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -230,7 +230,10 @@ class TradingWsService {
     _reconnectAttempts++;
     final delaySecs =
         [5, 10, 30, 60].elementAtOrNull(_reconnectAttempts - 1) ?? 60;
-    _pendingReconnect = Future.delayed(Duration(seconds: delaySecs), connect);
+    _pendingReconnect = Future.delayed(Duration(seconds: delaySecs), () {
+      _pendingReconnect = null;
+      connect();
+    });
   }
 
   void _startPingTimer() {
