@@ -20,7 +20,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 84;
+const int kCurrentBuild = 85;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -2806,12 +2806,7 @@ class _PortfolioDonutChartState extends State<_PortfolioDonutChart> {
   @override
   Widget build(BuildContext context) {
     if (widget.positions.isEmpty) {
-      return const Center(
-        child: Padding(
-          padding: EdgeInsets.symmetric(vertical: 16),
-          child: Text('Нет открытых позиций', style: TextStyle(color: kDim, fontSize: 13)),
-        ),
-      );
+      return const SizedBox.shrink();
     }
 
     // Aggregate exposure by pair (use notional or equal weight if notional absent)
@@ -3792,7 +3787,11 @@ class _ChannelStatsSheetState extends State<_ChannelStatsSheet> {
     ]);
     if (mounted) {
       setState(() {
-        _stats = results[0] as Map<String, dynamic>?;
+        _stats = (results[0] as Map<String, dynamic>?) ?? {
+          'total_signals': 0, 'wins': 0, 'losses': 0,
+          'win_rate': 0.0, 'avg_pnl': 0.0, 'total_pnl': 0.0,
+          'closed_trades': 0, 'best_pair': null, 'worst_pair': null,
+        };
         _positions = (results[1] as List<dynamic>?) ?? [];
         _loading = false;
       });
