@@ -21,7 +21,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 94;
+const int kCurrentBuild = 95;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -136,6 +136,7 @@ class WsSnapshot {
   final bool watcherAlive;
   final int openPositions;
   final int? newBuild;
+  final List<Map<String, dynamic>> positions;
 
   const WsSnapshot({
     this.status = WsStatus.offline,
@@ -143,6 +144,7 @@ class WsSnapshot {
     this.watcherAlive = false,
     this.openPositions = 0,
     this.newBuild,
+    this.positions = const [],
   });
 
   WsSnapshot copyWith({
@@ -151,6 +153,7 @@ class WsSnapshot {
     bool? watcherAlive,
     int? openPositions,
     int? newBuild,
+    List<Map<String, dynamic>>? positions,
   }) =>
       WsSnapshot(
         status: status ?? this.status,
@@ -158,8 +161,12 @@ class WsSnapshot {
         watcherAlive: watcherAlive ?? this.watcherAlive,
         openPositions: openPositions ?? this.openPositions,
         newBuild: newBuild ?? this.newBuild,
+        positions: positions ?? this.positions,
       );
 }
+
+// Global WebSocket service singleton — shared by all tabs
+final _globalWsService = TradingWsService();
 
 class TradingWsService {
   final _subject = BehaviorSubject<WsSnapshot>.seeded(const WsSnapshot());
@@ -194,8 +201,11 @@ class TradingWsService {
           final msg = jsonDecode(data as String) as Map<String, dynamic>;
           if (msg['type'] == 'pong') return;
           final prev = _subject.value;
-          final positions = msg['positions'];
-          final posCount = positions is List ? positions.length : prev.openPositions;
+          final rawPositions = msg['positions'];
+          final posList = rawPositions is List
+              ? rawPositions.whereType<Map<String, dynamic>>().toList()
+              : prev.positions;
+          final posCount = posList.length;
           final serverBuild = msg['build'] is int ? msg['build'] as int : null;
           final triggerUpdate = !_updateTriggered &&
               serverBuild != null &&
@@ -207,6 +217,7 @@ class TradingWsService {
             watcherAlive: msg['watcher_alive'] == true,
             openPositions: posCount,
             newBuild: triggerUpdate ? serverBuild : null,
+            positions: posList,
           ));
         },
         onDone: _onDisconnect,
@@ -561,7 +572,7 @@ class _HomeScreenState extends State<HomeScreen> {
   bool _botHealthy = false;
   int _lastSignalSecondsAgo = -1;
 
-  final _wsService = TradingWsService();
+  TradingWsService get _wsService => _globalWsService;
   StreamSubscription<WsSnapshot>? _wsSub;
 
   @override
@@ -876,7 +887,6 @@ class _HomeScreenState extends State<HomeScreen> {
     _checkUpdateTimer?.cancel();
     _healthTimer?.cancel();
     _wsSub?.cancel();
-    _wsService.dispose();
     _pageController.dispose();
     super.dispose();
   }
@@ -2614,13 +2624,25 @@ class _PositionsTabState extends State<PositionsTab> {
   Timer? _timer;
   Timer? _fundingTimer;
   Map<String, double> _fundingRates = {};
+  StreamSubscription<WsSnapshot>? _wsSub;
 
   @override
   void initState() {
     super.initState();
     _fetch();
     _fetchFunding();
-    _timer = Timer.periodic(const Duration(seconds: 15), (_) => _fetch());
+    // Live positions from WebSocket — no polling needed
+    _wsSub = _globalWsService.stream.listen((snap) {
+      if (!mounted) return;
+      if (snap.positions.isNotEmpty || _positions.isNotEmpty) {
+        setState(() {
+          _positions = snap.positions;
+          _balance = snap.balance > 0 ? snap.balance : _balance;
+          _loading = false;
+        });
+      }
+    });
+    _timer = Timer.periodic(const Duration(seconds: 30), (_) => _fetch());
     _fundingTimer =
         Timer.periodic(const Duration(seconds: 60), (_) => _fetchFunding());
   }
@@ -2701,6 +2723,7 @@ class _PositionsTabState extends State<PositionsTab> {
   void dispose() {
     _timer?.cancel();
     _fundingTimer?.cancel();
+    _wsSub?.cancel();
     super.dispose();
   }
 
@@ -3142,44 +3165,64 @@ class _PositionCard extends StatefulWidget {
 
 class _PositionCardState extends State<_PositionCard> {
   double? _livePrice;
-  Timer? _tickerTimer;
   final List<double> _priceHistory = [];
+  StreamSubscription<WsSnapshot>? _wsSub;
+  bool _historyLoaded = false;
 
   @override
   void initState() {
     super.initState();
-    _fetchPrice();
-    _tickerTimer = Timer.periodic(const Duration(seconds: 2), (_) => _fetchPrice());
+    _loadHistory();
+    // Live price from global WebSocket — updates every 2s
+    _wsSub = _globalWsService.stream.listen((snap) {
+      if (!mounted) return;
+      final Map<String, dynamic> p =
+          widget.position is Map<String, dynamic> ? widget.position as Map<String, dynamic> : {};
+      final posId = p['id']?.toString() ?? '';
+      // Find this position in the snapshot
+      for (final sp in snap.positions) {
+        if (sp['id']?.toString() == posId) {
+          final price = (sp['last_price'] as num?)?.toDouble();
+          if (price != null) {
+            setState(() {
+              _livePrice = price;
+              _priceHistory.add(price);
+              if (_priceHistory.length > 300) _priceHistory.removeAt(0);
+            });
+          }
+          break;
+        }
+      }
+    });
   }
 
   @override
   void dispose() {
-    _tickerTimer?.cancel();
+    _wsSub?.cancel();
     super.dispose();
   }
 
-  Future<void> _fetchPrice() async {
+  Future<void> _loadHistory() async {
     final Map<String, dynamic> p =
         widget.position is Map<String, dynamic> ? widget.position as Map<String, dynamic> : {};
-    final rawPair = (p['pair'] ?? p['symbol'] ?? '').toString().toUpperCase();
-    if (rawPair.isEmpty || rawPair == '—') return;
-    final symbol = rawPair.contains('USDT') ? rawPair : '${rawPair}USDT';
-    try {
-      final resp = await http
-          .get(Uri.parse('https://api.mexc.com/api/v3/ticker/price?symbol=$symbol'))
-          .timeout(const Duration(seconds: 4));
-      if (resp.statusCode == 200) {
-        final data = jsonDecode(resp.body) as Map<String, dynamic>;
-        final price = double.tryParse(data['price']?.toString() ?? '');
-        if (price != null && mounted) {
-          setState(() {
-            _livePrice = price;
-            _priceHistory.add(price);
-            if (_priceHistory.length > 20) _priceHistory.removeAt(0);
-          });
-        }
+    final posId = p['id']?.toString() ?? '';
+    if (posId.isEmpty) return;
+    final data = await apiGet('/positions/history');
+    if (data == null || !mounted) return;
+    final hist = data[posId];
+    if (hist is List) {
+      final prices = hist
+          .map((e) => (e is Map) ? (e['price'] as num?)?.toDouble() : null)
+          .whereType<double>()
+          .toList();
+      if (prices.isNotEmpty) {
+        setState(() {
+          _priceHistory.insertAll(0, prices);
+          _livePrice = prices.last;
+          _historyLoaded = true;
+        });
       }
-    } catch (_) {}
+    }
   }
 
   @override
