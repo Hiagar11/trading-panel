@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:developer' as developer;
 import 'dart:io';
 
@@ -20,7 +21,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 86;
+const int kCurrentBuild = 91;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -2144,7 +2145,7 @@ class _SignalsTabState extends State<SignalsTab> {
             padding: const EdgeInsets.all(8),
             sliver: SliverGrid(
               delegate: SliverChildBuilderDelegate(
-                (ctx, i) => _SignalCard(signal: filtered[i]),
+                (ctx, i) => SignalCard(signal: filtered[i]),
                 childCount: filtered.length,
               ),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
@@ -2197,7 +2198,7 @@ class _SignalsTabState extends State<SignalsTab> {
               ),
             );
           },
-          child: _SignalCard(signal: sig),
+          child: SignalCard(signal: sig),
         );
       },
     );
@@ -2226,16 +2227,16 @@ String _relativeTime(dynamic ts) {
   return '${diff.inDays}d ago';
 }
 
-class _SignalCard extends StatefulWidget {
+class SignalCard extends StatefulWidget {
   final dynamic signal;
   final bool showPnlAlways;
-  const _SignalCard({required this.signal, this.showPnlAlways = false});
+  const SignalCard({required this.signal, this.showPnlAlways = false});
 
   @override
-  State<_SignalCard> createState() => _SignalCardState();
+  State<SignalCard> createState() => _SignalCardState();
 }
 
-class _SignalCardState extends State<_SignalCard> {
+class _SignalCardState extends State<SignalCard> {
   Timer? _relTimer;
 
   @override
@@ -2371,13 +2372,13 @@ void _showSignalDetail(BuildContext context, Map<String, dynamic> s) {
     context: context,
     backgroundColor: Colors.transparent,
     isScrollControlled: true,
-    builder: (ctx) => _SignalDetailSheet(signal: s),
+    builder: (ctx) => SignalDetailSheet(signal: s),
   );
 }
 
-class _SignalDetailSheet extends StatelessWidget {
+class SignalDetailSheet extends StatelessWidget {
   final Map<String, dynamic> signal;
-  const _SignalDetailSheet({required this.signal});
+  const SignalDetailSheet({required this.signal});
 
   @override
   Widget build(BuildContext context) {
@@ -2757,7 +2758,7 @@ class _PositionsTabState extends State<PositionsTab> {
               style: TextStyle(
                   color: kDim, fontSize: 13, fontWeight: FontWeight.w600)),
           const SizedBox(height: 8),
-          if (_error != null)
+          if (_error != null && _positions.isEmpty)
             Center(
                 child: Text(_error!, style: const TextStyle(color: kRed)))
           else if (_positions.isEmpty)
@@ -2783,6 +2784,22 @@ class _PositionsTabState extends State<PositionsTab> {
   }
 }
 
+String _formatPnl(double v) {
+  final sign = v >= 0 ? '+' : '';
+  if (v.abs() >= 1000) return '$sign\$${v.toStringAsFixed(0)}';
+  if (v.abs() >= 10) return '$sign\$${v.toStringAsFixed(1)}';
+  return '$sign\$${v.toStringAsFixed(2)}';
+}
+
+String _formatPrice(dynamic raw) {
+  final v = double.tryParse(raw.toString());
+  if (v == null) return raw.toString();
+  if (v >= 1000) return v.toStringAsFixed(2);
+  if (v >= 1) return v.toStringAsFixed(4);
+  if (v >= 0.01) return v.toStringAsFixed(5);
+  return v.toStringAsFixed(6);
+}
+
 // ─── Portfolio Donut Chart ────────────────────────────────────────────────────
 class _PortfolioDonutChart extends StatefulWidget {
   final List<dynamic> positions;
@@ -2792,114 +2809,285 @@ class _PortfolioDonutChart extends StatefulWidget {
   State<_PortfolioDonutChart> createState() => _PortfolioDonutChartState();
 }
 
-class _PortfolioDonutChartState extends State<_PortfolioDonutChart> {
+class _PortfolioDonutChartState extends State<_PortfolioDonutChart>
+    with SingleTickerProviderStateMixin {
   int _touchedIndex = -1;
+  late AnimationController _glowCtrl;
 
-  static const _palette = [
-    kGold,
-    kGreen,
-    Color(0xFF5B8CFF),
-    Color(0xFFFF8C42),
-    Color(0xFFB47FFF),
-    Color(0xFFFF6B9D),
-    Color(0xFF42E8FF),
-    Color(0xFFFFD166),
+  @override
+  void initState() {
+    super.initState();
+    _glowCtrl = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 4),
+    )..repeat();
+  }
+
+  @override
+  void dispose() {
+    _glowCtrl.dispose();
+    super.dispose();
+  }
+
+  // Vibrant gradient pairs: [dark, bright]
+  static const _gradients = [
+    [Color(0xFFB8860B), Color(0xFFFFD700)], // deep gold → bright gold
+    [Color(0xFF0F9B8E), Color(0xFF43E8D8)], // deep teal → cyan
+    [Color(0xFF5B21B6), Color(0xFFA78BFA)], // deep violet → lavender
+    [Color(0xFFB45309), Color(0xFFFBBF24)], // amber dark → amber bright
+    [Color(0xFF9D174D), Color(0xFFF472B6)], // rose dark → pink bright
+    [Color(0xFF1D4ED8), Color(0xFF60A5FA)], // blue dark → sky
   ];
+
+  static String _cleanPair(String pair) =>
+      pair.replaceAll('USDT', '').replaceAll('/', '').trim();
 
   @override
   Widget build(BuildContext context) {
-    if (widget.positions.isEmpty) {
-      return const SizedBox.shrink();
-    }
+    if (widget.positions.isEmpty) return const SizedBox.shrink();
+    return AnimatedBuilder(
+      animation: _glowCtrl,
+      builder: (context, _) => _buildChart(context),
+    );
+  }
 
-    // Aggregate exposure by pair (use notional or equal weight if notional absent)
-    final Map<String, double> exposure = {};
+  Widget _buildChart(BuildContext context) {
+    // Build per-pair data
+    final Map<String, double> notional = {};
+    final Map<String, String> pairSide = {};
+    final Map<String, String> pairChannel = {};
+    final Map<String, double> pairPnl = {};
+    double totalPnl = 0.0;
+
     for (final p in widget.positions) {
       final pair = (p['pair'] ?? p['symbol'] ?? 'UNKNOWN').toString();
-      final notional = (p['notional'] ?? p['size'] ?? p['quantity'] ?? 1.0);
-      exposure[pair] = (exposure[pair] ?? 0.0) + (notional as num).toDouble().abs();
+      final qty = ((p['qty'] ?? p['quantity'] ?? 1) as num).toDouble();
+      final entry = ((p['entry'] ?? 1) as num).toDouble();
+      notional[pair] = (notional[pair] ?? 0.0) + (qty * entry).abs();
+      pairSide[pair] = (p['side'] ?? 'long').toString();
+      pairChannel[pair] = (p['channel'] ?? '').toString();
+      final pnl = ((p['unrealized_pnl'] ?? 0) as num).toDouble();
+      pairPnl[pair] = (pairPnl[pair] ?? 0.0) + pnl;
+      totalPnl += pnl;
     }
 
-    final total = exposure.values.fold(0.0, (a, b) => a + b);
+    final total = notional.values.fold(0.0, (a, b) => a + b);
     if (total == 0) return const SizedBox.shrink();
 
-    final entries = exposure.entries.toList();
+    final entries = notional.entries.toList();
+    final pnlColor = totalPnl >= 0 ? kGreen : kRed;
+
+    final t = _glowCtrl.value; // 0..1, loops
+    final angle = t * 2 * math.pi;
+
     final sections = List<PieChartSectionData>.generate(entries.length, (i) {
-      final pct = entries[i].value / total * 100;
       final isTouched = i == _touchedIndex;
+      final g = _gradients[i % _gradients.length];
+      // Each section rotates its gradient with a phase offset
+      final a = angle + i * math.pi / 3;
       return PieChartSectionData(
-        color: _palette[i % _palette.length],
+        gradient: LinearGradient(
+          colors: [g[0] as Color, g[1] as Color, g[0] as Color],
+          stops: const [0.0, 0.5, 1.0],
+          begin: Alignment(math.cos(a), math.sin(a)),
+          end: Alignment(-math.cos(a), -math.sin(a)),
+        ),
         value: entries[i].value,
-        title: isTouched ? '${entries[i].key}\n${pct.toStringAsFixed(1)}%' : '',
-        radius: isTouched ? 52 : 44,
-        titleStyle: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold),
-        badgeWidget: isTouched
-            ? null
-            : SizedBox(
-                width: 0,
-                height: 0,
-                child: Opacity(opacity: 0, child: Container()),
-              ),
+        title: '',
+        radius: isTouched ? 26 : 20,
+        borderSide: BorderSide(
+          color: isTouched ? Colors.white38 : Colors.transparent,
+          width: isTouched ? 1.5 : 0,
+        ),
       );
     });
 
-    final legendItems = List.generate(entries.length, (i) {
-      final pct = entries[i].value / total * 100;
-      return Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(width: 8, height: 8, decoration: BoxDecoration(color: _palette[i % _palette.length], shape: BoxShape.circle)),
-          const SizedBox(width: 4),
-          Text('${entries[i].key} ${pct.toStringAsFixed(0)}%',
-              style: const TextStyle(color: kDim, fontSize: 11)),
-        ],
-      );
-    });
+    // Card border glow pulses with animation
+    final glow = _gradients[0][1] as Color;
+    final glowOpacity = 0.12 + 0.12 * math.sin(angle); // 0.12..0.24 pulse
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(color: kCard, borderRadius: BorderRadius.circular(10)),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Распределение позиций', style: TextStyle(color: kDim, fontSize: 12, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              SizedBox(
-                width: 120,
-                height: 120,
-                child: PieChart(
-                  PieChartData(
-                    sections: sections,
-                    centerSpaceRadius: 28,
-                    sectionsSpace: 2,
-                    pieTouchData: PieTouchData(
-                      touchCallback: (FlTouchEvent event, PieTouchResponse? resp) {
-                        setState(() {
-                          if (!event.isInterestedForInteractions || resp == null || resp.touchedSection == null) {
-                            _touchedIndex = -1;
-                          } else {
-                            _touchedIndex = resp.touchedSection!.touchedSectionIndex;
-                          }
-                        });
-                      },
-                    ),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 6,
-                  children: legendItems,
-                ),
-              ),
-            ],
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(16),
+        gradient: LinearGradient(
+          colors: [
+            Color.lerp(const Color(0xFF161410), const Color(0xFF201C0A),
+                (math.sin(angle) + 1) / 2)!,
+            const Color(0xFF0C0C0C),
+          ],
+          begin: Alignment(math.cos(angle * 0.4), math.sin(angle * 0.4)),
+          end: Alignment(-math.cos(angle * 0.4), -math.sin(angle * 0.4)),
+        ),
+        border: Border.all(color: glow.withOpacity(glowOpacity)),
+        boxShadow: [
+          BoxShadow(
+            color: glow.withOpacity(glowOpacity * 0.6),
+            blurRadius: 20,
+            spreadRadius: 0,
+            offset: const Offset(0, 2),
           ),
         ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 12, 14, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                const Text('ПОЗИЦИИ',
+                    style: TextStyle(color: kDim, fontSize: 10, fontWeight: FontWeight.w700, letterSpacing: 1.2)),
+                const Spacer(),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: pnlColor.withOpacity(0.15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: pnlColor.withOpacity(0.3), width: 0.5),
+                  ),
+                  child: Text(
+                    _formatPnl(totalPnl),
+                    style: TextStyle(color: pnlColor, fontSize: 11, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Small ring — half size
+                SizedBox(
+                  width: 64,
+                  height: 64,
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      PieChart(
+                        PieChartData(
+                          sections: sections,
+                          centerSpaceRadius: 18,
+                          sectionsSpace: 2,
+                          pieTouchData: PieTouchData(
+                            touchCallback: (FlTouchEvent event, PieTouchResponse? resp) {
+                              setState(() {
+                                if (!event.isInterestedForInteractions ||
+                                    resp == null || resp.touchedSection == null) {
+                                  _touchedIndex = -1;
+                                } else {
+                                  _touchedIndex = resp.touchedSection!.touchedSectionIndex;
+                                }
+                              });
+                            },
+                          ),
+                        ),
+                      ),
+                      Text(
+                        '${entries.length}',
+                        style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 14),
+                // Legend
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: List.generate(entries.length, (i) {
+                      final pair = entries[i].key;
+                      final label = _cleanPair(pair);
+                      final pct = entries[i].value / total * 100;
+                      final side = pairSide[pair] ?? 'long';
+                      final pnl = pairPnl[pair] ?? 0.0;
+                      final channel = pairChannel[pair] ?? '';
+                      final isLong = side == 'long';
+                      final g = _gradients[i % _gradients.length];
+                      final barColor = g[1] as Color;
+
+                      return Padding(
+                        padding: EdgeInsets.only(bottom: i < entries.length - 1 ? 8 : 0),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Container(
+                              width: 3, height: 30,
+                              decoration: BoxDecoration(
+                                gradient: LinearGradient(
+                                  colors: [g[0] as Color, g[1] as Color, g[0] as Color],
+                                  stops: const [0.0, 0.5, 1.0],
+                                  begin: Alignment(0, -1 + 2 * t),
+                                  end: Alignment(0, 1 + 2 * t),
+                                ),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Text(label,
+                                          style: TextStyle(
+                                              color: barColor,
+                                              fontSize: 13,
+                                              fontWeight: FontWeight.w700)),
+                                      const SizedBox(width: 5),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: (isLong ? kGreen : kRed).withOpacity(0.13),
+                                          borderRadius: BorderRadius.circular(3),
+                                        ),
+                                        child: Text(
+                                          isLong ? 'L' : 'S',
+                                          style: TextStyle(
+                                              color: isLong ? kGreen : kRed,
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w800),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Row(
+                                    children: [
+                                      Text('${pct.toStringAsFixed(0)}%',
+                                          style: const TextStyle(color: kDim, fontSize: 10)),
+                                      if (channel.isNotEmpty) ...[
+                                        const Text(' · ', style: TextStyle(color: kDim, fontSize: 10)),
+                                        Flexible(
+                                          child: Text(channel,
+                                              style: const TextStyle(color: kDim, fontSize: 10),
+                                              overflow: TextOverflow.ellipsis),
+                                        ),
+                                      ],
+                                    ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Text(
+                              _formatPnl(pnl),
+                              style: TextStyle(
+                                color: pnl >= 0 ? kGreen : kRed,
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -2995,7 +3183,8 @@ class _PositionCardState extends State<_PositionCard> {
     final pair = p['pair'] ?? p['symbol'] ?? '—';
     final side = (p['side'] ?? p['direction'] ?? '').toString().toUpperCase();
     final entry = p['entry'] ?? p['entry_price'];
-    final pnl = (p['pnl'] as num?)?.toDouble() ?? 0;
+    final pnl = (p['unrealized_pnl'] as num?)?.toDouble() ??
+        (p['pnl'] as num?)?.toDouble() ?? 0;
     final isLong = side.contains('LONG') || side.contains('BUY');
 
     // Live P&L % from ticker
@@ -3043,7 +3232,7 @@ class _PositionCardState extends State<_PositionCard> {
                   ),
                   if (entry != null) ...[
                     const SizedBox(height: 4),
-                    Text('Вход: $entry',
+                    Text('Вход: ${_formatPrice(entry)}',
                         style: const TextStyle(color: kDim, fontSize: 12)),
                   ],
                   if (_livePrice != null) ...[
@@ -3498,7 +3687,7 @@ class _ChannelsTabState extends State<ChannelsTab> {
                   : ListView.builder(
                       padding: const EdgeInsets.all(8),
                       itemCount: _channels.length,
-                      itemBuilder: (ctx, i) => _ChannelCard(
+                      itemBuilder: (ctx, i) => ChannelCard(
                         key: ValueKey(_channels[i]['id']),
                         channel: _channels[i],
                         isOwner: _isOwner,
@@ -3526,13 +3715,13 @@ class _ChannelsTabState extends State<ChannelsTab> {
   }
 }
 
-class _ChannelCard extends StatefulWidget {
+class ChannelCard extends StatefulWidget {
   final dynamic channel;
   final bool isOwner;
   final VoidCallback onDelete;
   final VoidCallback onToggle;
   final VoidCallback onAnalyze;
-  const _ChannelCard({
+  const ChannelCard({
     super.key,
     required this.channel,
     required this.isOwner,
@@ -3542,10 +3731,10 @@ class _ChannelCard extends StatefulWidget {
   });
 
   @override
-  State<_ChannelCard> createState() => _ChannelCardState();
+  State<ChannelCard> createState() => _ChannelCardState();
 }
 
-class _ChannelCardState extends State<_ChannelCard> {
+class _ChannelCardState extends State<ChannelCard> {
   bool _expanded = false;
   List<dynamic> _positions = [];
   Timer? _posTimer;
@@ -4071,7 +4260,7 @@ class _ChannelSignalsScreenState extends State<ChannelSignalsScreen> {
               : ListView.builder(
                   padding: const EdgeInsets.all(8),
                   itemCount: _signals.length,
-                  itemBuilder: (ctx, i) => _SignalCard(signal: _signals[i], showPnlAlways: true),
+                  itemBuilder: (ctx, i) => SignalCard(signal: _signals[i], showPnlAlways: true),
                 ),
     );
   }
