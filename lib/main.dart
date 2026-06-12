@@ -21,7 +21,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 92;
+const int kCurrentBuild = 93;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -3760,9 +3760,16 @@ class _ChannelCardState extends State<ChannelCard> {
 
   Future<void> _fetchPositions() async {
     final data = await apiGetList('/positions');
-    if (mounted) {
-      setState(() => _positions = data ?? []);
-    }
+    if (!mounted) return;
+    final Map<String, dynamic> c =
+        widget.channel is Map<String, dynamic> ? widget.channel as Map<String, dynamic> : {};
+    final channelId = (c['id'] ?? '').toString();
+    final filtered = (data ?? []).where((p) {
+      final pos = p is Map<String, dynamic> ? p : <String, dynamic>{};
+      final ch = (pos['channel'] ?? '').toString();
+      return ch.isEmpty || ch == channelId;
+    }).toList();
+    setState(() => _positions = filtered);
   }
 
   Future<void> _closePosition(dynamic pos) async {
