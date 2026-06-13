@@ -21,7 +21,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 99;
+const int kCurrentBuild = 100;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -923,12 +923,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       appBar: AppBar(
         title: GestureDetector(
           onLongPress: _showDevMenu,
-          child: const Column(
+          child: Row(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('TRADING PANEL'),
-              Text('v$kCurrentVersion', style: TextStyle(fontSize: 11, color: kDim)),
+              const Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('TRADING PANEL'),
+                  Text('v$kCurrentVersion', style: TextStyle(fontSize: 11, color: kDim)),
+                ],
+              ),
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                decoration: BoxDecoration(
+                  color: kGold.withOpacity(0.18),
+                  borderRadius: BorderRadius.circular(3),
+                  border: Border.all(color: kGold.withOpacity(0.5)),
+                ),
+                child: const Text('PAPER',
+                    style: TextStyle(
+                        color: kGold, fontSize: 9, fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5)),
+              ),
             ],
           ),
         ),
@@ -2646,6 +2664,7 @@ class _PositionsTabState extends State<PositionsTab> {
   double _drawdown = 0;
   double _dailyPnl = 0;
   int _tradeCount = 0;
+  List<double> _equityCurve = [];
   bool _loading = true;
   String? _error;
   Timer? _timer;
@@ -2693,6 +2712,7 @@ class _PositionsTabState extends State<PositionsTab> {
     final posData = await apiGetList('/positions', auth: true);
     final balData = await apiGet('/balance', auth: true);
     final statsData = await apiGet('/stats/daily', auth: true);
+    final equityData = await apiGetList('/stats/equity_curve');
     if (mounted) {
       setState(() {
         _loading = false;
@@ -2709,6 +2729,12 @@ class _PositionsTabState extends State<PositionsTab> {
         if (statsData != null) {
           _dailyPnl = (statsData['pnl'] as num?)?.toDouble() ?? _dailyPnl;
           _tradeCount = (statsData['trade_count'] as num?)?.toInt() ?? _tradeCount;
+        }
+        if (equityData != null && equityData.isNotEmpty) {
+          _equityCurve = equityData
+              .map((e) => (e is Map) ? (e['cumulative'] as num?)?.toDouble() : null)
+              .whereType<double>()
+              .toList();
         }
       });
     }
@@ -2812,6 +2838,10 @@ class _PositionsTabState extends State<PositionsTab> {
           if (_drawdown > 0) ...[
             const SizedBox(height: 8),
             _DrawdownBar(drawdownPct: _drawdown),
+          ],
+          if (_equityCurve.length >= 2) ...[
+            const SizedBox(height: 8),
+            _EquityCurveCard(points: _equityCurve),
           ],
           const SizedBox(height: 12),
           _PortfolioDonutChart(positions: _positions),
@@ -3214,6 +3244,56 @@ class _DrawdownBar extends StatelessWidget {
   }
 }
 
+class _EquityCurveCard extends StatelessWidget {
+  final List<double> points;
+  const _EquityCurveCard({required this.points});
+
+  @override
+  Widget build(BuildContext context) {
+    final last = points.last;
+    final isUp = last >= 0;
+    final color = isUp ? kGreen : kRed;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text('Equity curve',
+                  style: TextStyle(color: kDim, fontSize: 11)),
+              const Spacer(),
+              Text(
+                '${last >= 0 ? '+' : ''}\$${last.toStringAsFixed(2)}',
+                style: TextStyle(
+                    color: color,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          SizedBox(
+            height: 40,
+            child: CustomPaint(
+              size: const Size(double.infinity, 40),
+              painter: _SparkPainter(
+                prices: List.unmodifiable(points),
+                isUp: isUp,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
@@ -3326,10 +3406,49 @@ class _PositionCardState extends State<_PositionCard> {
     final entry = p['entry'] ?? p['entry_price'];
     final liqPrice = (p['liq_price'] as num?)?.toDouble();
     final leverage = (p['leverage'] as num?)?.toDouble();
+    final sl = (p['sl'] as num?)?.toDouble();
+    final tpPlanRaw = p['tp_plan'];
+    final filledTp = (p['filled_tp'] as num?)?.toInt() ?? 0;
+    final openedAtStr = p['opened_at']?.toString();
+    final channelRaw = (p['channel'] ?? '').toString();
     final staticPnl = (p['unrealized_pnl'] as num?)?.toDouble() ??
         (p['pnl'] as num?)?.toDouble() ?? 0;
     final isLong = side.contains('LONG') || side.contains('BUY');
     final qty = (p['qty'] as num?)?.toDouble() ?? 0;
+
+    // TP progress
+    final int tpTotal = tpPlanRaw is List ? tpPlanRaw.length : 0;
+
+    // TTL countdown (72h max age)
+    int? ttlRemainingH;
+    if (openedAtStr != null && openedAtStr.isNotEmpty) {
+      try {
+        final openedDt = DateTime.parse(openedAtStr).toUtc();
+        final ageH = DateTime.now().toUtc().difference(openedDt).inHours;
+        ttlRemainingH = (72 - ageH).clamp(0, 72);
+      } catch (_) {}
+    }
+
+    // Channel short tag
+    String channelTag = '';
+    if (channelRaw.isNotEmpty) {
+      if (channelRaw.toLowerCase().contains('нестеров') || channelRaw.toLowerCase().contains('nesterov')) {
+        channelTag = 'НСТ';
+      } else if (channelRaw.toLowerCase().contains('юра') || channelRaw.toLowerCase().contains('yura')) {
+        channelTag = 'ЮРА';
+      } else {
+        channelTag = channelRaw.length > 4 ? channelRaw.substring(0, 4).toUpperCase() : channelRaw.toUpperCase();
+      }
+    }
+
+    // Distance to liquidation %
+    double? liqDistPct;
+    if (liqPrice != null) {
+      final ref = _livePrice ?? double.tryParse(entry?.toString() ?? '');
+      if (ref != null && ref > 0) {
+        liqDistPct = ((liqPrice - ref) / ref * 100).abs();
+      }
+    }
 
     // Compute live P&L in USD and % directly from _livePrice (updated every 2s via WS)
     double? livePnlPct;
@@ -3397,18 +3516,55 @@ class _PositionCardState extends State<_PositionCard> {
                           ),
                         ),
                       ],
+                      if (channelTag.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: kDim.withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(channelTag,
+                              style: const TextStyle(
+                                  color: kDim,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.3)),
+                        ),
+                      ],
                     ],
                   ),
                   if (entry != null) ...[
                     const SizedBox(height: 4),
-                    Text('Вход: ${_formatPrice(entry)}',
-                        style: const TextStyle(color: kDim, fontSize: 12)),
+                    Row(
+                      children: [
+                        Text('Вход: ${_formatPrice(entry)}',
+                            style: const TextStyle(color: kDim, fontSize: 12)),
+                        if (sl != null) ...[
+                          const SizedBox(width: 10),
+                          Text('SL: ${_formatPrice(sl)}',
+                              style: const TextStyle(
+                                  color: Color(0xFFFF8A80), fontSize: 12)),
+                        ],
+                      ],
+                    ),
                   ],
                   if (liqPrice != null) ...[
                     const SizedBox(height: 2),
-                    Text('Ликв: ${_formatPrice(liqPrice)}',
-                        style: const TextStyle(
-                            color: Color(0xFFFF6B6B), fontSize: 12)),
+                    Row(
+                      children: [
+                        Text('Ликв: ${_formatPrice(liqPrice)}',
+                            style: const TextStyle(
+                                color: Color(0xFFFF6B6B), fontSize: 12)),
+                        if (liqDistPct != null) ...[
+                          const SizedBox(width: 4),
+                          Text('(−${liqDistPct.toStringAsFixed(1)}%)',
+                              style: const TextStyle(
+                                  color: Color(0xFFFF6B6B), fontSize: 11)),
+                        ],
+                      ],
+                    ),
                   ],
                   if (_livePrice != null) ...[
                     const SizedBox(height: 2),
@@ -3441,6 +3597,61 @@ class _PositionCardState extends State<_PositionCard> {
                           fontSize: 11),
                     ),
                   ],
+                  if (tpTotal > 0) ...[
+                    const SizedBox(height: 4),
+                    Row(
+                      children: [
+                        for (int i = 0; i < tpTotal; i++) ...[
+                          if (i > 0) const SizedBox(width: 4),
+                          Container(
+                            width: 16,
+                            height: 16,
+                            decoration: BoxDecoration(
+                              shape: BoxShape.circle,
+                              color: i < filledTp
+                                  ? kGreen.withOpacity(0.85)
+                                  : kDim.withOpacity(0.2),
+                              border: Border.all(
+                                  color: i < filledTp
+                                      ? kGreen
+                                      : kDim.withOpacity(0.4),
+                                  width: 1),
+                            ),
+                            child: Center(
+                              child: Text('${i + 1}',
+                                  style: TextStyle(
+                                      color: i < filledTp
+                                          ? Colors.black
+                                          : kDim,
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold)),
+                            ),
+                          ),
+                        ],
+                        if (ttlRemainingH != null) ...[
+                          const Spacer(),
+                          Text('TTL ${ttlRemainingH}ч',
+                              style: TextStyle(
+                                  color: ttlRemainingH < 12
+                                      ? const Color(0xFFFF9800)
+                                      : kDim,
+                                  fontSize: 11)),
+                        ],
+                      ],
+                    ),
+                  ] else if (ttlRemainingH != null) ...[
+                    const SizedBox(height: 4),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Text('TTL ${ttlRemainingH}ч',
+                          style: TextStyle(
+                              color: ttlRemainingH < 12
+                                  ? const Color(0xFFFF9800)
+                                  : kDim,
+                              fontSize: 11)),
+                    ),
+                  ],
+                  const SizedBox(height: 2),
                   Text(
                       'P&L: ${pnl >= 0 ? '+' : ''}\$${pnl.toStringAsFixed(2)}',
                       style: TextStyle(
