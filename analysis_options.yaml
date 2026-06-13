@@ -1,0 +1,23 @@
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  errors:
+    # Treat these as errors, not warnings
+    avoid_print: error
+    prefer_const_constructors: warning
+    use_key_in_widget_constructors: warning
+
+linter:
+  rules:
+    # A1: debug noise prevention — print() is NOT stripped in release APKs
+    - avoid_print
+
+    # A3: targeted quality rules for agent-generated code
+    - prefer_const_constructors
+    - prefer_const_declarations
+    - use_key_in_widget_constructors
+    - avoid_unnecessary_containers
+    - sized_box_for_whitespace
+
+    # Performance anti-patterns (C1/C2 enforcement)
+    - avoid_slow_async_io

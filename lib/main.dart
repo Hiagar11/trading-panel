@@ -21,7 +21,7 @@ import 'package:open_file/open_file.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 // ─── Constants ───────────────────────────────────────────────────────────────
-const int kCurrentBuild = 95;
+const int kCurrentBuild = 99;
 const String kCurrentVersion = '1.6.9';
 const String kApiBase = 'https://85.192.38.213:8766';
 const String kGitHubRepo = 'Hiagar11/trading-panel';
@@ -246,6 +246,23 @@ class TradingWsService {
       _pendingReconnect = null;
       connect();
     });
+  }
+
+  /// Call on app foreground resume — cancels backoff and reconnects immediately.
+  void resumeConnect() {
+    _pendingReconnect = null; // cancel backoff timer (dart Future can't be cancelled, but we clear the flag)
+    _reconnectAttempts = 0;
+    final status = _subject.value.status;
+    if (status == WsStatus.offline || status == WsStatus.stale) {
+      connect();
+    } else if (status == WsStatus.online) {
+      // Send a ping to verify the connection is still alive
+      try {
+        _ws?.add(jsonEncode({'type': 'ping'}));
+      } catch (_) {
+        _onDisconnect();
+      }
+    }
   }
 
   void _startPingTimer() {
@@ -553,7 +570,7 @@ class HomeScreen extends StatefulWidget {
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends State<HomeScreen> {
+class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _watcherAlive = false;
   double _balance = 0;
   int _openPositions = 0;
@@ -578,7 +595,15 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _init();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _globalWsService.resumeConnect();
+    }
   }
 
   Future<void> _init() async {
@@ -883,6 +908,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _statusTimer?.cancel();
     _checkUpdateTimer?.cancel();
     _healthTimer?.cancel();
@@ -2617,6 +2643,7 @@ class PositionsTab extends StatefulWidget {
 class _PositionsTabState extends State<PositionsTab> {
   List<dynamic> _positions = [];
   double _balance = 0;
+  double _drawdown = 0;
   double _dailyPnl = 0;
   int _tradeCount = 0;
   bool _loading = true;
@@ -2677,6 +2704,7 @@ class _PositionsTabState extends State<PositionsTab> {
         }
         if (balData != null) {
           _balance = (balData['balance'] as num?)?.toDouble() ?? _balance;
+          _drawdown = (balData['drawdown_pct'] as num?)?.toDouble() ?? _drawdown;
         }
         if (statsData != null) {
           _dailyPnl = (statsData['pnl'] as num?)?.toDouble() ?? _dailyPnl;
@@ -2781,6 +2809,10 @@ class _PositionsTabState extends State<PositionsTab> {
               ),
             ],
           ),
+          if (_drawdown > 0) ...[
+            const SizedBox(height: 8),
+            _DrawdownBar(drawdownPct: _drawdown),
+          ],
           const SizedBox(height: 12),
           _PortfolioDonutChart(positions: _positions),
           const Text('Открытые позиции',
@@ -2849,7 +2881,7 @@ class _PortfolioDonutChartState extends State<_PortfolioDonutChart>
     _glowCtrl = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 4),
-    )..repeat();
+    )..repeat(reverse: true);
   }
 
   @override
@@ -2906,13 +2938,14 @@ class _PortfolioDonutChartState extends State<_PortfolioDonutChart>
     final entries = notional.entries.toList();
     final pnlColor = totalPnl >= 0 ? kGreen : kRed;
 
-    final t = _glowCtrl.value; // 0..1, loops
-    final angle = t * 2 * math.pi;
+    final t = _glowCtrl.value; // 0..1..0 (reverse: true = seamless loop)
+    // Use sine for all oscillating values so 0→1→0 maps smoothly to full cycles
+    final pulse = math.sin(t * math.pi); // 0→1→0, always smooth at endpoints
+    final angle = t * 2 * math.pi;      // section gradient direction (reverses = back-forth, visually fine)
 
     final sections = List<PieChartSectionData>.generate(entries.length, (i) {
       final isTouched = i == _touchedIndex;
       final g = _gradients[i % _gradients.length];
-      // Each section rotates its gradient with a phase offset
       final a = angle + i * math.pi / 3;
       return PieChartSectionData(
         gradient: LinearGradient(
@@ -2931,9 +2964,9 @@ class _PortfolioDonutChartState extends State<_PortfolioDonutChart>
       );
     });
 
-    // Card border glow pulses with animation
+    // Card border glow — uses pulse (0→1→0, seamless) for smooth loop
     final glow = _gradients[0][1] as Color;
-    final glowOpacity = 0.12 + 0.12 * math.sin(angle); // 0.12..0.24 pulse
+    final glowOpacity = 0.12 + 0.12 * pulse; // 0.12..0.24, smooth at endpoints
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -2941,12 +2974,12 @@ class _PortfolioDonutChartState extends State<_PortfolioDonutChart>
         borderRadius: BorderRadius.circular(16),
         gradient: LinearGradient(
           colors: [
-            Color.lerp(const Color(0xFF161410), const Color(0xFF201C0A),
-                (math.sin(angle) + 1) / 2)!,
+            Color.lerp(const Color(0xFF161410), const Color(0xFF201C0A), pulse)!,
             const Color(0xFF0C0C0C),
           ],
-          begin: Alignment(math.cos(angle * 0.4), math.sin(angle * 0.4)),
-          end: Alignment(-math.cos(angle * 0.4), -math.sin(angle * 0.4)),
+          // Direction oscillates between two stable endpoints — no wrap jump
+          begin: Alignment(pulse * 2 - 1, (pulse * 2 - 1) * 0.5),
+          end: Alignment(-(pulse * 2 - 1), -(pulse * 2 - 1) * 0.5),
         ),
         border: Border.all(color: glow.withOpacity(glowOpacity)),
         boxShadow: [
@@ -3122,6 +3155,65 @@ class _PortfolioDonutChartState extends State<_PortfolioDonutChart>
   }
 }
 
+class _DrawdownBar extends StatelessWidget {
+  final double drawdownPct;
+  const _DrawdownBar({required this.drawdownPct});
+
+  @override
+  Widget build(BuildContext context) {
+    final pct = drawdownPct.clamp(0.0, 100.0);
+    final Color barColor = pct >= 30
+        ? kRed
+        : pct >= 20
+            ? const Color(0xFFFF9800) // orange
+            : kGold;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: kCard,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: barColor.withOpacity(0.4)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text('Просадка', style: const TextStyle(color: kDim, fontSize: 11)),
+              const Spacer(),
+              Text(
+                '${pct.toStringAsFixed(1)}%',
+                style: TextStyle(
+                    color: barColor, fontSize: 12, fontWeight: FontWeight.bold),
+              ),
+              if (pct >= 30)
+                const Padding(
+                  padding: EdgeInsets.only(left: 4),
+                  child: Text('🛑', style: TextStyle(fontSize: 12)),
+                )
+              else if (pct >= 20)
+                const Padding(
+                  padding: EdgeInsets.only(left: 4),
+                  child: Text('⚠️', style: TextStyle(fontSize: 12)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(3),
+            child: LinearProgressIndicator(
+              value: pct / 100,
+              minHeight: 4,
+              backgroundColor: barColor.withOpacity(0.15),
+              valueColor: AlwaysStoppedAnimation<Color>(barColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _StatCard extends StatelessWidget {
   final String label;
   final String value;
@@ -3232,20 +3324,30 @@ class _PositionCardState extends State<_PositionCard> {
     final pair = p['pair'] ?? p['symbol'] ?? '—';
     final side = (p['side'] ?? p['direction'] ?? '').toString().toUpperCase();
     final entry = p['entry'] ?? p['entry_price'];
-    final pnl = (p['unrealized_pnl'] as num?)?.toDouble() ??
+    final liqPrice = (p['liq_price'] as num?)?.toDouble();
+    final leverage = (p['leverage'] as num?)?.toDouble();
+    final staticPnl = (p['unrealized_pnl'] as num?)?.toDouble() ??
         (p['pnl'] as num?)?.toDouble() ?? 0;
     final isLong = side.contains('LONG') || side.contains('BUY');
+    final qty = (p['qty'] as num?)?.toDouble() ?? 0;
 
-    // Live P&L % from ticker
+    // Compute live P&L in USD and % directly from _livePrice (updated every 2s via WS)
     double? livePnlPct;
+    double? livePnlUsd;
     if (_livePrice != null && entry != null) {
       final entryPrice = double.tryParse(entry.toString());
       if (entryPrice != null && entryPrice > 0) {
         livePnlPct = isLong
             ? (_livePrice! - entryPrice) / entryPrice * 100
             : (entryPrice - _livePrice!) / entryPrice * 100;
+        if (qty > 0) {
+          livePnlUsd = isLong
+              ? (_livePrice! - entryPrice) * qty
+              : (entryPrice - _livePrice!) * qty;
+        }
       }
     }
+    final pnl = livePnlUsd ?? staticPnl;
 
     return Card(
       margin: const EdgeInsets.only(bottom: 8),
@@ -3277,12 +3379,36 @@ class _PositionCardState extends State<_PositionCard> {
                                 fontSize: 11,
                                 fontWeight: FontWeight.bold)),
                       ),
+                      if (leverage != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: kGold.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(3),
+                          ),
+                          child: Text(
+                            '${leverage.toStringAsFixed(leverage % 1 == 0 ? 0 : 1)}x',
+                            style: const TextStyle(
+                                color: kGold,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                   if (entry != null) ...[
                     const SizedBox(height: 4),
                     Text('Вход: ${_formatPrice(entry)}',
                         style: const TextStyle(color: kDim, fontSize: 12)),
+                  ],
+                  if (liqPrice != null) ...[
+                    const SizedBox(height: 2),
+                    Text('Ликв: ${_formatPrice(liqPrice)}',
+                        style: const TextStyle(
+                            color: Color(0xFFFF6B6B), fontSize: 12)),
                   ],
                   if (_livePrice != null) ...[
                     const SizedBox(height: 2),
@@ -3787,17 +3913,35 @@ class _ChannelCardState extends State<ChannelCard> {
   bool _expanded = false;
   List<dynamic> _positions = [];
   Timer? _posTimer;
+  StreamSubscription<WsSnapshot>? _wsSub;
+
+  String get _channelId {
+    final c = widget.channel is Map<String, dynamic> ? widget.channel as Map<String, dynamic> : {};
+    return (c['id'] ?? '').toString();
+  }
 
   @override
   void initState() {
     super.initState();
     _fetchPositions();
-    _posTimer = Timer.periodic(const Duration(seconds: 10), (_) => _fetchPositions());
+    _posTimer = Timer.periodic(const Duration(seconds: 30), (_) => _fetchPositions());
+    // Live P&L from WS — update positions every 2s
+    _wsSub = _globalWsService.stream.listen((snap) {
+      if (!mounted) return;
+      if (snap.positions.isEmpty && _positions.isEmpty) return;
+      final id = _channelId;
+      final filtered = snap.positions.where((p) {
+        final ch = (p['channel'] ?? '').toString();
+        return ch.isEmpty || ch == id;
+      }).toList();
+      setState(() => _positions = filtered);
+    });
   }
 
   @override
   void dispose() {
     _posTimer?.cancel();
+    _wsSub?.cancel();
     super.dispose();
   }
 
